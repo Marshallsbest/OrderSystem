@@ -10,16 +10,52 @@
      */
     window.onload = function () {
         if (!CLIENT_ID) {
-            showError("No Client ID provided. Please use your valid link.");
+            // No ID in URL -> Show Login View
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('login-view').classList.remove('hidden');
             return;
         }
 
         // 1. Fetch Client Data
+        fetchClientData(CLIENT_ID);
+    };
+
+    /**
+     * Handle Manual Login
+     */
+    function handleManualLogin() {
+        const input = document.getElementById('manual-client-id');
+        const id = input.value.trim();
+
+        if (!id) {
+            alert("Please enter a Client ID.");
+            return;
+        }
+
+        // Hide Login, Show Loading
+        document.getElementById('login-view').classList.add('hidden');
+        document.getElementById('loading').classList.remove('hidden');
+
+        // Update Global and Fetch
+        // We act as if it came from URL
+        fetchClientData(id);
+    }
+
+    function fetchClientData(id) {
         google.script.run
             .withSuccessHandler(onClientDataSuccess)
-            .withFailureHandler(onFailure)
-            .getClientById(CLIENT_ID);
-    };
+            .withFailureHandler(onLoginFailure)
+            .getClientById(id);
+    }
+
+    function onLoginFailure(error) {
+        // If specific login fail
+        showError("Invalid Client ID or System Error.");
+        // Optional: Provide "Try Again" button to go back to Login View
+        // For now, showError is terminal state in existing code, but let's allow retry?
+        // Let's just reset to login view after alert for better UX in this specific flow
+        document.getElementById('error').innerHTML += `<br><button class="md3-btn-filled" onclick="location.reload()">Try Again</button>`;
+    }
 
     function onClientDataSuccess(client) {
         if (!client) {

@@ -1,76 +1,90 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <base target="_top">
-    <!-- Material Design 3 -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
-    
-    <!-- CSS Include -->
-    <?!= include('css'); ?>
-  </head>
-  <body>
-    <!-- App Bar -->
-    <header class="md3-top-app-bar">
-      <div class="md3-top-app-bar__content">
-        <h1 class="md3-headline-medium">Order Form</h1>
-      </div>
-    </header>
 
-    <main class="md3-container">
-      <!-- Loading State -->
-      <div id="loading" class="state-view">
-        <span class="loader"></span>
-        <p>Loading Client Data...</p>
-      </div>
+<head>
+  <base target="_top">
+  <!-- Material Design 3 -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
 
-      <!-- Error State -->
-      <div id="error" class="state-view hidden">
-        <span class="material-symbols-outlined error-icon">error</span>
-        <p id="error-msg">Something went wrong.</p>
-      </div>
+  <!-- CSS Include -->
+  <?!= include('css'); ?>
+</head>
 
-      <!-- Order Form -->
-      <form id="order-form" class="hidden">
-        
-        <!-- Client Info Card -->
-        <div class="md3-card">
-          <div class="card-content">
-            <h2 class="md3-title-large" id="client-name">Loading...</h2>
-            <p id="client-details" class="md3-body-medium">...</p>
-          </div>
+<body>
+  <!-- App Bar -->
+  <header class="md3-top-app-bar">
+    <div class="md3-top-app-bar__content">
+      <h1 class="md3-headline-medium">Order Form</h1>
+    </div>
+  </header>
+
+  <main class="md3-container">
+    <!-- Login / Landing View -->
+    <div id="login-view" class="state-view hidden">
+      <h2 class="md3-headline-medium" style="margin-bottom: 24px;">Welcome</h2>
+      <p class="md3-body-medium" style="margin-bottom: 16px;">Please enter your 6-digit Client ID to continue.</p>
+      <div class="md3-text-field" style="max-width: 300px; margin: 0 auto 16px;">
+        <label>Client ID</label>
+        <input type="text" id="manual-client-id" placeholder="Ex: 123456">
+      </div>
+      <button class="md3-btn-filled" onclick="handleManualLogin()">Enter Store</button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading" class="state-view">
+      <span class="loader"></span>
+      <p>Loading Client Data...</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="error" class="state-view hidden">
+      <span class="material-symbols-outlined error-icon">error</span>
+      <p id="error-msg">Something went wrong.</p>
+    </div>
+
+    <!-- Order Form -->
+    <form id="order-form" class="hidden">
+
+      <!-- Client Info Card -->
+      <div class="md3-card">
+        <div class="card-content">
+          <h2 class="md3-title-large" id="client-name">Loading...</h2>
+          <p id="client-details" class="md3-body-medium">...</p>
         </div>
-
-        <!-- Product List -->
-        <div id="product-list">
-          <!-- Products injected here -->
-        </div>
-
-        <!-- FAB / Calculate Button -->
-        <div class="fab-container">
-           <div class="total-preview">
-             <span>Total Pieces: <strong id="total-pieces">0</strong></span>
-           </div>
-           <button type="button" id="submit-btn" class="md3-btn-filled" onclick="submitOrder()">
-             Submit Order
-           </button>
-        </div>
-      </form>
-      
-      <!-- Success State -->
-      <div id="success" class="state-view hidden">
-        <span class="material-symbols-outlined success-icon">check_circle</span>
-        <h2>Order Received!</h2>
-        <p>Your order has been placed successfully.</p>
       </div>
 
-    </main>
+      <!-- Product List -->
+      <div id="product-list">
+        <!-- Products injected here -->
+      </div>
 
-    <!-- JS Include -->
-    <!-- Pass Client ID from server-side -->
-    <script>
-      const CLIENT_ID = "<?= clientId ?>";
-    </script>
-    <?!= include('js'); ?>
-  </body>
+      <!-- FAB / Calculate Button -->
+      <div class="fab-container">
+        <div class="total-preview">
+          <span>Total Pieces: <strong id="total-pieces">0</strong></span>
+        </div>
+        <button type="button" id="submit-btn" class="md3-btn-filled" onclick="submitOrder()">
+          Submit Order
+        </button>
+      </div>
+    </form>
+
+    <!-- Success State -->
+    <div id="success" class="state-view hidden">
+      <span class="material-symbols-outlined success-icon">check_circle</span>
+      <h2>Order Received!</h2>
+      <p>Your order has been placed successfully.</p>
+    </div>
+
+  </main>
+
+  <!-- JS Include -->
+  <!-- Pass Client ID from server-side -->
+  <script>
+    const CLIENT_ID = "<?= clientId ?>";
+  </script>
+  <?!= include('js'); ?>
+</body>
+
 </html>
