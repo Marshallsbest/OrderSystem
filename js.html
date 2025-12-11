@@ -49,60 +49,63 @@
     /**
      * Render Product List
      */
+    /**
+     * Render Product List grouped by Category
+     */
     function renderProducts(products) {
         const container = document.getElementById('product-list');
         container.innerHTML = "";
 
-        // Group by Product Name? Or just list them? 
-        // User wanted "Product Name" and "Version" logic.
-        // We'll just render cards for each item for now, or group visually.
+        // 1. Group products by Category
+        const grouped = {};
+        products.forEach(p => {
+            const cat = p.category || "Uncategorized";
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(p);
+        });
 
-        products.forEach((p, index) => {
-            const card = document.createElement('div');
-            card.className = "md3-card";
+        // 2. Sort Categories (optional, alphabetical)
+        const categories = Object.keys(grouped).sort();
 
-            // Determine label
-            const title = p.name + (p.variation ? ` - ${p.variation}` : "");
-            const priceDisplay = p.price ? `$${p.price}` : "";
+        // 3. Render Groups
+        categories.forEach(cat => {
+            // Category Header
+            const retSection = document.createElement('section');
+            retSection.innerHTML = `<h2 class="md3-title-large" style="margin-top: 24px;">${cat}</h2>`;
+            container.appendChild(retSection);
 
-            card.innerHTML = `
-      <div class="card-content">
-        <h3 class="md3-title-large">${title}</h3>
-        <p class="md3-body-medium">SKU: ${p.sku} | ${priceDisplay}</p>
-        
-        <div class="qty-input-group">
-          <!-- Units Input -->
-          <div class="md3-text-field">
-            <label>Units</label>
-            <input type="number" min="0" data-sku="${p.sku}" data-type="unit" class="qty-input" placeholder="0">
-          </div>
+            // Render Items in this category
+            grouped[cat].forEach(p => {
+                const card = document.createElement('div');
+                card.className = "md3-card";
+
+                // Determine label
+                const title = p.name + (p.variation ? ` - ${p.variation}` : "");
+                const priceDisplay = p.price ? `$${p.price}` : "";
+
+                card.innerHTML = `
+        <div class="card-content">
+          <h3 class="md3-title-large" style="font-size: 16px;">${title}</h3>
+          <p class="md3-body-medium">SKU: ${p.sku} | ${priceDisplay}</p>
           
-          <!-- Case Input (if applicable) -->
-          <!-- We treat this as a multiplier on backend or just separate KV? 
-               Requirements said to inputs: "single unit or master case". 
-               For the Order KV pair, we usually submit TOTAL pieces or separate SKUs?
-               If "Case" is just x24 units of the SAME SKU, we multiply.
-               If "Case" has a different SKU, we need that mapped. 
-               
-               Hypothesis from Plan: "PRODUCTS... Units/Case".
-               We will convert Case Input -> Units * UnitsPerCase for the order?
-               OR store as "SKU: 5 (Cases)"? 
-               User said: "Table has fields ... # of Units, # of Cases".
-               
-               Let's simply capture both and calculate TOTAL UNITS for the final "SKU: QTY" text.
-               Or if the user wants separate tracking, we need to know. 
-               Given "Product N" columns with "SKU: QTY", usually means total units.
-           -->
-           ${p.unitsPerCase ? `
-          <div class="md3-text-field">
-            <label>Cases (x${p.unitsPerCase})</label>
-            <input type="number" min="0" data-sku="${p.sku}" data-per-case="${p.unitsPerCase}" data-type="case" class="qty-input" placeholder="0">
+          <div class="qty-input-group">
+            <!-- Units Input -->
+            <div class="md3-text-field">
+              <label>Units</label>
+              <input type="number" min="0" data-sku="${p.sku}" data-type="unit" class="qty-input" placeholder="0">
+            </div>
+            
+             ${p.unitsPerCase ? `
+            <div class="md3-text-field">
+              <label>Cases (x${p.unitsPerCase})</label>
+              <input type="number" min="0" data-sku="${p.sku}" data-per-case="${p.unitsPerCase}" data-type="case" class="qty-input" placeholder="0">
+            </div>
+            ` : ''}
           </div>
-          ` : ''}
         </div>
-      </div>
-    `;
-            container.appendChild(card);
+      `;
+                container.appendChild(card);
+            });
         });
 
         // Attach Listeners

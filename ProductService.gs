@@ -15,21 +15,22 @@ function getProductCatalog() {
     // Assuming row 1 is headers and data starts at row 2
     if (lastRow < 2) return [];
 
-    // Read columns A to F (up to Units/Case)
-    // Adjust range if Order Amount is needed (but that's usually for manual entry)
-    const range = sheet.getRange(2, 1, lastRow - 1, 6);
+    // Read columns A to G (up to Units/Case)
+    // Adjusted for new "Category" column: [Ref, SKU, Category, Name, Variation, Price, Units/Case]
+    const range = sheet.getRange(2, 1, lastRow - 1, 7);
     const values = range.getValues();
 
     // Map array to objects
     // Col Indices (0-based): 
-    // 0: Ref, 1: SKU, 2: ProdName, 3: VarName, 4: Price, 5: Units/Case
+    // 0: Ref, 1: SKU, 2: Category, 3: Name, 4: Variation, 5: Price, 6: Units/Case
     return values.map(row => ({
         ref: row[0],
         sku: row[1],
-        name: row[2],
-        variation: row[3],
-        price: row[4],
-        unitsPerCase: row[5]
+        category: row[2], // New field
+        name: row[3],
+        variation: row[4],
+        price: row[5],
+        unitsPerCase: row[6]
     })).filter(p => p.sku && p.name); // Filter empty rows
 }
 
