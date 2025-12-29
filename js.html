@@ -404,7 +404,11 @@
                 html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">`;
                 if (product) {
                     // Logic for Sales
-                    const isSale = product.onSale && (product.salePrice > 0);
+                    // Check Category Sale Active Status
+                    const catSetting = window.categorySettings && window.categorySettings[product.category];
+                    const catSaleActive = catSetting ? catSetting.saleActive : false;
+
+                    const isSale = catSaleActive && product.onSale && (product.salePrice > 0);
 
                     html += `
                         <input type="number"
@@ -448,7 +452,10 @@
             if (!label) label = "Standard";
 
             // Sales Logic
-            const isSale = p.onSale && (p.salePrice > 0);
+            const catSetting = window.categorySettings && window.categorySettings[p.category];
+            const catSaleActive = catSetting ? catSetting.saleActive : false;
+
+            const isSale = catSaleActive && p.onSale && (p.salePrice > 0);
             const activePrice = isSale ? p.salePrice : p.price;
 
             // Info Icon Logic
@@ -527,9 +534,6 @@
     /**
      * Calculate Totals
      */
-    /**
-     * Calculate Totals
-     */
     function calculateTotal() {
         let totalPieces = 0;
         let grandTotal = 0;
@@ -545,7 +549,12 @@
                 if (product) {
                     const price = Number(product.price) || 0;
                     const salePrice = Number(product.salePrice) || 0;
-                    const isOnSale = product.onSale && salePrice > 0;
+
+                    // Check Category Sale Active Status
+                    const catSetting = window.categorySettings && window.categorySettings[product.category];
+                    const catSaleActive = catSetting ? catSetting.saleActive : false;
+
+                    const isOnSale = catSaleActive && product.onSale && salePrice > 0;
                     const finalPrice = isOnSale ? salePrice : price;
 
                     if (input.dataset.type === 'case') {
