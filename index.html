@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <base target="_top">
+  <base target="_self">
   <!-- Material Design 3 -->
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
@@ -15,7 +15,8 @@
   <!-- App Bar -->
   <header class="md3-top-app-bar">
     <div class="md3-top-app-bar__content">
-      <h1 class="md3-headline-medium">Order Form</h1>
+      <h1 class="md3-headline-medium">Order Form v1.3.1</h1>
+      <div id="header-total" class="md3-title-large" style="font-weight: bold;">Total: $0.00</div>
     </div>
   </header>
 
@@ -25,16 +26,31 @@
       <h2 class="md3-headline-medium" style="margin-bottom: 24px;">Welcome</h2>
       <p class="md3-body-medium" style="margin-bottom: 16px;">Please enter your 6-digit Client ID to continue.</p>
       <div class="md3-text-field" style="max-width: 300px; margin: 0 auto 16px;">
+        <input type="text" id="manual-client-id" placeholder=" " oninput="clearLoginError()">
         <label>Client ID</label>
-        <input type="text" id="manual-client-id" placeholder="Ex: 123456">
       </div>
+      <div id="login-error-msg" class="error-inline hidden"></div>
       <button class="md3-btn-filled" onclick="handleManualLogin()">Enter Store</button>
     </div>
 
-    <!-- Loading State -->
-    <div id="loading" class="state-view">
+    <!-- Details Modal/Bubble -->
+    <div id="bubble-overlay" class="bubble-overlay" onclick="closeDetails()"></div>
+    <div id="details-bubble" class="details-bubble">
+      <div id="bubble-img-container" class="details-img-container">
+        <!-- IMG injected here -->
+      </div>
+      <div id="bubble-title" class="details-title"></div>
+      <div id="bubble-desc" class="details-desc"></div>
+      <div style="text-align:right;">
+        <button onclick="closeDetails()"
+          style="border:none; background:none; color:#666; font-weight:bold; cursor:pointer;">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- Loading State (Full Screen Overlay) -->
+    <div id="loading" class="loading-overlay">
       <span class="loader"></span>
-      <p>Loading Client Data...</p>
+      <p id="loading-text" style="margin-top: 20px; font-weight: 500;">Loading Store...</p>
     </div>
 
     <!-- Error State -->
@@ -46,11 +62,15 @@
     <!-- Order Form -->
     <form id="order-form" class="hidden">
 
-      <!-- Client Info Card -->
-      <div class="md3-card">
-        <div class="card-content">
-          <h2 class="md3-title-large" id="client-name">Loading...</h2>
-          <p id="client-details" class="md3-body-medium">...</p>
+      <!-- Client Info (Editable) -->
+      <div id="client-info-container" style="display: flex; gap: 12px; margin-bottom: 24px;">
+        <div class="md3-text-field">
+          <input type="text" id="client-name-input" placeholder=" ">
+          <label>Company Name</label>
+        </div>
+        <div class="md3-text-field">
+          <input type="text" id="client-address-input" placeholder=" ">
+          <label>Address</label>
         </div>
       </div>
 
@@ -77,14 +97,36 @@
       <p>Your order has been placed successfully.</p>
     </div>
 
+    <!-- Collapse All FAB -->
+    <button class="md3-fab-fixed" id="collapse-fab" onclick="collapseAllCats()">
+      <span class="material-symbols-outlined">unfold_less</span>
+    </button>
+
   </main>
 
   <!-- JS Include -->
   <!-- Pass Client ID from server-side -->
   <script>
-    const CLIENT_ID = "<?= clientId ?>";
+    // Inject Template Variables
+    window.initialClientId = <?!= JSON.stringify(clientId) ?>;
+    window.categorySettings = <?!= JSON.stringify(categorySettings) ?>;
+
+    // Apply Main Theme Color immediately if present
+    if (window.categorySettings && window.categorySettings['Main']) {
+      const setting = window.categorySettings['Main'];
+      const mainColor = (typeof setting === 'object' && setting.color) ? setting.color : setting;
+
+      const root = document.documentElement;
+      if (mainColor && typeof mainColor === 'string') {
+        root.style.setProperty('--md-sys-color-primary', mainColor);
+      }
+    }
   </script>
   <?!= include('js'); ?>
+  <!-- Version Footer -->
+  <div style="text-align: center; color: #aaa; font-size: 12px; padding: 20px;">
+    v1.3.1
+  </div>
 </body>
 
 </html>

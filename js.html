@@ -4,11 +4,25 @@
      */
     let PRODUCT_CATALOG = [];
     let CURRENT_CLIENT = null;
+    const CLIENT_ID = window.initialClientId; // Defined in index.html
+
+    /**
+     * Helper: Convert string to safe CSS Class
+     */
+    function toCssClass(str) {
+        if (!str) return 'cat-unknown';
+        return 'cat-' + str.toLowerCase()
+            .replace(/[^a-z0-9]/g, '-') // Replace non-alphanumeric with hyphen
+            .replace(/-+/g, '-')        // Collapse multiple hyphens
+            .replace(/^-|-$/g, '');     // Trim hyphens
+    }
 
     /**
      * Initialize
      */
     window.onload = function () {
+        console.log("Window loaded");
+
         if (!CLIENT_ID) {
             // No ID in URL -> Show Login View
             document.getElementById('loading').classList.add('hidden');
@@ -16,7 +30,31 @@
             return;
         }
 
-        // 1. Fetch Client Data
+        // DEBUG: Alert to confirm we are starting
+        // alert("App Loaded. Client ID: " + CLIENT_ID); 
+
+        document.getElementById('header-total').classList.remove('hidden'); // Show Subtotal
+
+        // Scroll Shadow for App Bar
+        window.addEventListener('scroll', () => {
+            const appBar = document.querySelector('.md3-top-app-bar');
+            if (window.scrollY > 0) {
+                appBar.classList.add('scrolled-header');
+            } else {
+                appBar.classList.remove('scrolled-header');
+            }
+        });
+
+        // 1. Apply Main Color if exists
+        if (window.categorySettings && window.categorySettings['Main']) {
+            const mainColor = window.categorySettings['Main'];
+            document.documentElement.style.setProperty('--md-sys-color-primary', mainColor);
+            // Also apply to App Bar directly to be safe
+            const appBar = document.querySelector('.md3-top-app-bar');
+            if (appBar) appBar.style.backgroundColor = mainColor;
+        }
+
+        // 2. Fetch Client Data
         fetchClientData(CLIENT_ID);
     };
 
@@ -28,7 +66,7 @@
         const id = input.value.trim();
 
         if (!id) {
-            alert("Please enter a Client ID.");
+            showLoginError("Please enter a Client ID.");
             return;
         }
 
@@ -41,6 +79,17 @@
         fetchClientData(id);
     }
 
+    function showLoginError(msg) {
+        const el = document.getElementById('login-error-msg');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+        document.getElementById('manual-client-id').classList.add('error-state'); // Optional: shake or red border
+    }
+
+    function clearLoginError() {
+        document.getElementById('login-error-msg').classList.add('hidden');
+    }
+
     function fetchClientData(id) {
         google.script.run
             .withSuccessHandler(onClientDataSuccess)
@@ -51,23 +100,34 @@
     function onLoginFailure(error) {
         // If specific login fail
         showError("Invalid Client ID or System Error.");
-        // Optional: Provide "Try Again" button to go back to Login View
-        // For now, showError is terminal state in existing code, but let's allow retry?
-        // Let's just reset to login view after alert for better UX in this specific flow
+
+        // DEBUG: Fetch and show debug info to help user
+        const input = document.getElementById('manual-client-id');
+        const id = input ? input.value : (CLIENT_ID || "Unknown");
+
+        google.script.run
+            .withSuccessHandler(info => {
+                const msg = `DEBUG RAW DATA:\nSheet: ${info.sheetName}\nTotal Rows: ${info.totalSheetRows}\nRaw Headers (Row 1): ${info.rawHeaders}\nFirst Data (Row 2): ${info.rawFirstRowData}\nParsed Keys: ${info.parsedObjectKeys}`;
+                alert(msg);
+            })
+            .debugClientLookup(id);
+
         document.getElementById('error').innerHTML += `<br><button class="md3-btn-filled" onclick="location.reload()">Try Again</button>`;
     }
 
     function onClientDataSuccess(client) {
+        // alert("Client Data Success: " + (client ? client.Name : "null"));
         if (!client) {
             showError("Client not found in database.");
             return;
         }
 
         CURRENT_CLIENT = client;
-        document.getElementById('client-name').textContent = client['Name'] || "Unknown Client";
-        document.getElementById('client-details').textContent = client['Address'] || ""; // Or other fields
+        document.getElementById('client-name-input').value = client['Name'] || "";
+        document.getElementById('client-address-input').value = client['Address'] || "";
 
         // 2. Fetch Products
+        // alert("Fetching Products...");
         google.script.run
             .withSuccessHandler(onProductsSuccess)
             .withFailureHandler(onFailure)
@@ -76,10 +136,25 @@
 
     function onProductsSuccess(products) {
         PRODUCT_CATALOG = products;
-        renderProducts(products);
+
+        try {
+            renderProducts(products);
+        } catch (e) {
+            console.error("Render Error:", e);
+            alert("Error rendering products: " + e.message);
+        }
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('order-form').classList.remove('hidden');
+        document.getElementById('collapse-fab').classList.remove('hidden'); // Show FAB
+    }
+
+    /**
+     * Collapse All Categories
+     */
+    function collapseAllCats() {
+        const details = document.querySelectorAll('details');
+        details.forEach(d => d.open = false);
     }
 
     /**
@@ -88,65 +163,363 @@
     /**
      * Render Product List grouped by Category
      */
+    /**
+     * Render Product List grouped by Category
+     * Supports:
+     * 1. Matrix Groups (e.g. SODA SQ)
+     * 2. Compact Tables (Standard items)
+     */
     function renderProducts(products) {
         const container = document.getElementById('product-list');
         container.innerHTML = "";
 
-        // 1. Group products by Category
-        const grouped = {};
-        products.forEach(p => {
-            const cat = p.category || "Uncategorized";
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push(p);
-        });
+        // --- DYNAMIC STYLE GENERATION (User Request: Class Based) ---
+        // Create a style block for category colors
+        const styleId = 'dynamic-cat-syles';
+        let styleBlock = document.getElementById(styleId);
+        if (!styleBlock) {
+            styleBlock = document.createElement('style');
+            styleBlock.id = styleId;
+            document.head.appendChild(styleBlock);
+        }
 
-        // 2. Sort Categories (optional, alphabetical)
-        const categories = Object.keys(grouped).sort();
+        let cssRules = "";
+        if (window.categorySettings) {
+            Object.keys(window.categorySettings).forEach(cat => {
+                const setting = window.categorySettings[cat];
+                // Check if setting is an object (new format) or string (fallback)
+                const color = (typeof setting === 'object' && setting.color) ? setting.color : (typeof setting === 'string' ? setting : null);
 
-        // 3. Render Groups
-        categories.forEach(cat => {
-            // Category Header
-            const retSection = document.createElement('section');
-            retSection.innerHTML = `<h2 class="md3-title-large" style="margin-top: 24px;">${cat}</h2>`;
-            container.appendChild(retSection);
-
-            // Render Items in this category
-            grouped[cat].forEach(p => {
-                const card = document.createElement('div');
-                card.className = "md3-card";
-
-                // Determine label
-                const title = p.name + (p.variation ? ` - ${p.variation}` : "");
-                const priceDisplay = p.price ? `$${p.price}` : "";
-
-                card.innerHTML = `
-        <div class="card-content">
-          <h3 class="md3-title-large" style="font-size: 16px;">${title}</h3>
-          <p class="md3-body-medium">SKU: ${p.sku} | ${priceDisplay}</p>
-          
-          <div class="qty-input-group">
-            <!-- Units Input -->
-            <div class="md3-text-field">
-              <label>Units</label>
-              <input type="number" min="0" data-sku="${p.sku}" data-type="unit" class="qty-input" placeholder="0">
-            </div>
-            
-             ${p.unitsPerCase ? `
-            <div class="md3-text-field">
-              <label>Cases (x${p.unitsPerCase})</label>
-              <input type="number" min="0" data-sku="${p.sku}" data-per-case="${p.unitsPerCase}" data-type="case" class="qty-input" placeholder="0">
-            </div>
-            ` : ''}
-          </div>
-        </div>
-      `;
-                container.appendChild(card);
+                const cleanClass = toCssClass(cat);
+                if (cleanClass && color) {
+                    // Target both summary and its inner content to ensure color visibility
+                    cssRules += `.${cleanClass}[open] > summary, .${cleanClass}[open] > summary .header-content { background-color: ${color} !important; }\n`;
+                    // Rule 2: Matrix Header Background (Nested)
+                    cssRules += `.${cleanClass} .matrix-header-row { background-color: ${color} !important; }\n`;
+                }
             });
+        }
+        console.log("DEBUG: Generated CSS Rules:", cssRules);
+        styleBlock.textContent = cssRules;
+
+        // 0. Normalize Data
+        const normalizedProducts = products.map(p => {
+            let name = String(p.name).trim();
+            let varName = String(p.variation || "").trim();
+            const nameIsSize = /^\d+(\.\d+)?\s*([a-zA-Z%]+)?$/.test(name);
+            const varIsName = varName && /[a-zA-Z]/.test(varName) && varName.length > 2;
+
+            if (nameIsSize && varIsName) {
+                return { ...p, name: varName, variation: name };
+            }
+            return p;
         });
 
-        // Attach Listeners
+        // 1. Group by Category
+        const groupedByCat = {};
+        normalizedProducts.forEach(p => {
+            const cat = p.category || "Uncategorized";
+            if (!groupedByCat[cat]) groupedByCat[cat] = [];
+            groupedByCat[cat].push(p);
+        });
+
+        // SORTING LOGIC: Respect Numeric Order from Settings (Col H)
+        let categories = Object.keys(groupedByCat);
+
+        categories.sort((a, b) => {
+            const setA = window.categorySettings && window.categorySettings[a];
+            const setB = window.categorySettings && window.categorySettings[b];
+
+            // Default to 999 if no order set
+            const orderA = (setA && typeof setA.order === 'number') ? setA.order : 999;
+            const orderB = (setB && typeof setB.order === 'number') ? setB.order : 999;
+
+            if (orderA !== orderB) {
+                return orderA - orderB;
+            }
+
+            // Tie-break: Alphabetical
+            return a.localeCompare(b);
+        });
+
+        categories.forEach(cat => {
+            const catDetails = document.createElement('details');
+            catDetails.open = false; // Default closed
+            // Add dynamic class to Top Level Category Header
+            const catClass = toCssClass(cat);
+            catDetails.className = `category-details ${catClass}`;
+
+            const catSummary = document.createElement('summary');
+            catSummary.className = "md3-headline-medium category-summary";
+            catSummary.textContent = cat;
+            catDetails.appendChild(catSummary);
+
+            const catContent = document.createElement('div');
+            catContent.className = "category-content";
+
+            const groups = groupProductsDynamically(groupedByCat[cat]);
+            const sortedGroupNames = Object.keys(groups).sort();
+
+            sortedGroupNames.forEach(baseName => {
+                const group = groups[baseName];
+                const isMatrix = checkMatrixEligibility(group);
+
+                // --- BUILD DYNAMIC HEADER COLUMNS ---
+                let headerColsHtml = "";
+                let colDefs = [];
+
+                if (isMatrix) {
+                    // ... (Matrix logic unchanged) ...
+                    const allNames = [...new Set(group.map(p => p.name))].sort((a, b) => {
+                        const numA = parseInt(a.replace(/\D/g, '')) || 0;
+                        const numB = parseInt(b.replace(/\D/g, '')) || 0;
+                        return numA - numB;
+                    });
+                    colDefs = allNames.map(name => {
+                        const regex = new RegExp(baseName, "i");
+                        let label = name.replace(regex, "").trim();
+                        if (!label) label = "Std";
+                        const p = group.find(prod => prod.name === name);
+                        const price = p ? Number(p.price).toFixed(2) : "0.00";
+                        return { label: label, price: price, name: name };
+                    });
+                } else {
+                    // ... (Standard logic unchanged) ...
+                    const showCase = group.some(p => p.unitsPerCase > 1);
+                    headerColsHtml += `<div class="col-data"><span>Qty</span></div>`;
+                    headerColsHtml += `<div class="col-data"><span>Price</span></div>`;
+                    if (showCase) headerColsHtml += `<div class="col-data"><span>Case</span></div>`;
+                }
+
+                // Determine Sticky
+                const isSticky = group.length > 2;
+
+                const prodDetails = document.createElement('details');
+                prodDetails.open = false; // Default closed
+
+                // ASSIGN DYNAMIC CATEGORY CLASS
+                const catClass = toCssClass(cat);
+                prodDetails.className = `product-group-details mb-3 ${catClass}`;
+                prodDetails.ontoggle = (e) => handleToggle(e, prodDetails);
+
+                const prodSummary = document.createElement('summary');
+                prodSummary.className = "product-group-header";
+                if (!isSticky) prodSummary.classList.add('no-sticky');
+
+                // MAIN FLEX HEADER
+                prodSummary.innerHTML = `
+                    <div class="header-content grid-header-row">
+                        <span class="prod-title col-name">${baseName}</span>
+                        <div class="header-expanded-content">
+                            ${headerColsHtml}
+                        </div>
+                    </div>`;
+
+                prodDetails.appendChild(prodSummary);
+
+                const prodContent = document.createElement('div');
+                prodContent.className = "product-content";
+
+                if (isMatrix) {
+                    prodContent.innerHTML = renderMatrixGroupFlex(baseName, group, colDefs);
+                } else {
+                    prodContent.innerHTML = renderCompactTableFlex(baseName, group);
+                }
+
+                prodDetails.appendChild(prodContent);
+                catContent.appendChild(prodDetails);
+            });
+
+            catDetails.appendChild(catContent);
+            container.appendChild(catDetails);
+        });
+
+        attachInputListeners();
+        setupStickyObservers();
+    }
+
+    // --- FLEX RENDER FUNCTIONS ---
+
+    // --- DETAILS BUBBLE LOGIC ---
+    function showDetails(name, desc, img) {
+        const overlay = document.getElementById('bubble-overlay');
+        const bubble = document.getElementById('details-bubble');
+        const titleEl = document.getElementById('bubble-title');
+        const descEl = document.getElementById('bubble-desc');
+        const imgContainer = document.getElementById('bubble-img-container');
+
+        titleEl.textContent = name;
+        descEl.textContent = desc || "No description available.";
+
+        imgContainer.innerHTML = "";
+        if (img) {
+            const image = document.createElement('img');
+            image.src = img;
+            image.className = "details-img";
+            image.onerror = function () { this.style.display = 'none'; imgContainer.innerHTML = '<span style="color:#aaa">Image failed to load</span>'; };
+            imgContainer.appendChild(image);
+            imgContainer.style.display = 'flex';
+        } else {
+            imgContainer.style.display = 'none';
+        }
+
+        overlay.style.display = 'block';
+        bubble.style.display = 'block';
+    }
+
+    function closeDetails() {
+        document.getElementById('bubble-overlay').style.display = 'none';
+        document.getElementById('details-bubble').style.display = 'none';
+    }
+
+    // --- FLEX RENDER FUNCTIONS ---
+
+    function renderMatrixGroupFlex(title, products, colDefs) {
+        const rowLabels = [...new Set(products.map(p => p.variation || "Standard"))].sort();
+
+        // Add 'matrix-scroll-view' class for CSS targeting
+        let html = `<div class="table-container matrix-scroll-view">`;
+
+        // 1. Internal Header Row (Scrolls with content, Sticks to top)
+        html += `<div class="grid-header-row matrix-header-row" style="display:flex; width:max-content; min-width:100%;">`;
+        html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:inherit; z-index:2; border-right:1px solid rgba(0,0,0,0.1);">${title}</div>`;
+        colDefs.forEach(col => {
+            html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">
+                        <span style="font-size:13px; font-weight:bold; display:block; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%;" title="${col.label}">${col.label}</span>
+                      </div>`;
+        });
+        html += `</div>`;
+
+        // 2. Data Rows
+        rowLabels.forEach(rowName => {
+            html += `<div class="grid-data-row" style="display:flex; width:max-content; min-width:100%;">`;
+            html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid #eee;">${rowName}</div>`;
+
+            colDefs.forEach(col => {
+                const product = products.find(p =>
+                    (p.variation === rowName || (!p.variation && rowName === "Standard")) &&
+                    p.name === col.name
+                );
+
+                html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">`;
+                if (product) {
+                    // Logic for Sales
+                    const isSale = product.onSale && (product.salePrice > 0);
+
+                    html += `
+                        <input type="number"
+                               inputmode="numeric"
+                               pattern="[0-9]*"
+                               min="0"
+                               data-sku="${product.sku}"
+                               data-type="unit"
+                               class="table-input qty-input"
+                               placeholder="0">`;
+
+                    // Add Price hint if Sale
+                    if (isSale) {
+                        html += `<div style="font-size:10px; color:red; font-weight:bold;">$${Number(product.salePrice).toFixed(2)}</div>`;
+                    }
+
+                } else {
+                    html += `-`;
+                }
+                html += `</div>`;
+            });
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+        return html;
+    }
+
+    function renderCompactTableFlex(title, products) {
+        products.sort((a, b) => a.name.localeCompare(b.name));
+        const showCase = products.some(p => p.unitsPerCase > 1);
+
+        let html = `<div class="table-container">`;
+
+        products.forEach(p => {
+            let label = p.variation;
+            if (!label || label === "Standard") {
+                const regex = new RegExp(title, "i");
+                label = p.name.replace(regex, "").trim();
+            }
+            if (!label) label = "Standard";
+
+            // Sales Logic
+            const isSale = p.onSale && (p.salePrice > 0);
+            const activePrice = isSale ? p.salePrice : p.price;
+
+            // Info Icon Logic
+            let infoHtml = "";
+            if (p.description || p.image) {
+                // Escape quotes for safety
+                const cleanName = (p.name + " " + (p.variation || "")).replace(/"/g, "&quot;");
+                const cleanDesc = (p.description || "").replace(/"/g, "&quot;");
+                const cleanImg = (p.image || "").replace(/"/g, "&quot;");
+                infoHtml = `<span class="info-icon" onclick="showDetails('${cleanName}', '${cleanDesc}', '${cleanImg}')">i</span>`;
+            }
+
+            html += `<div class="grid-data-row">`;
+            html += `<div class="col-name">
+                        ${label} 
+                        ${isSale ? '<span class="sale-badge">SALE</span>' : ''}
+                        ${infoHtml}
+                     </div>`;
+
+            html += `<div class="col-data">
+                        <input type="number"
+                               inputmode="numeric"
+                               pattern="[0-9]*"
+                               min="0"
+                               data-sku="${p.sku}"
+                               data-type="unit"
+                               class="table-input qty-input"
+                               placeholder="0">
+                     </div>`;
+
+            // Price Column
+            html += `<div class="col-data">`;
+            if (isSale) {
+                html += `<span class="original-price-strikethrough">$${Number(p.price).toFixed(2)}</span>`;
+                html += `<span class="sale-price-highlight">$${Number(p.salePrice).toFixed(2)}</span>`;
+            } else {
+                html += `<span>$${Number(p.price).toFixed(2)}</span>`;
+            }
+            html += `</div>`;
+
+            if (showCase) {
+                html += `<div class="col-data">`;
+                if (p.unitsPerCase) {
+                    html += `
+                        <input type="number"
+                               inputmode="numeric"
+                               pattern="[0-9]*"
+                               min="0"
+                               data-sku="${p.sku}"
+                               data-per-case="${p.unitsPerCase}"
+                               data-type="case"
+                               class="table-input qty-input"
+                               placeholder="0">
+                        <span class="price-sub">x${p.unitsPerCase}</span>`;
+                } else {
+                    html += `-`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+        return html;
+    }
+
+    function attachInputListeners() {
         const inputs = document.querySelectorAll('.qty-input');
         inputs.forEach(input => {
+            input.removeEventListener('input', calculateTotal); // Safety
             input.addEventListener('input', calculateTotal);
         });
     }
@@ -154,23 +527,42 @@
     /**
      * Calculate Totals
      */
+    /**
+     * Calculate Totals
+     */
     function calculateTotal() {
         let totalPieces = 0;
+        let grandTotal = 0;
 
         const inputs = document.querySelectorAll('.qty-input');
         inputs.forEach(input => {
             const val = parseInt(input.value) || 0;
             if (val > 0) {
-                if (input.dataset.type === 'case') {
-                    const perCase = parseInt(input.dataset.perCase) || 1;
-                    totalPieces += (val * perCase);
-                } else {
-                    totalPieces += val;
+                // Find product in catalog
+                const sku = input.dataset.sku;
+                const product = PRODUCT_CATALOG.find(p => p.sku === sku);
+
+                if (product) {
+                    const price = Number(product.price) || 0;
+                    const salePrice = Number(product.salePrice) || 0;
+                    const isOnSale = product.onSale && salePrice > 0;
+                    const finalPrice = isOnSale ? salePrice : price;
+
+                    if (input.dataset.type === 'case') {
+                        const perCase = parseInt(input.dataset.perCase) || 1;
+                        totalPieces += (val * perCase);
+                        grandTotal += (finalPrice * perCase * val);
+                    } else {
+                        // Unit
+                        totalPieces += val;
+                        grandTotal += (finalPrice * val);
+                    }
                 }
             }
         });
 
         document.getElementById('total-pieces').textContent = totalPieces;
+        document.getElementById('header-total').textContent = `Total: $${grandTotal.toFixed(2)}`;
     }
 
     /**
@@ -211,8 +603,16 @@
         btn.disabled = true;
         btn.textContent = "Submitting...";
 
+        // Show Loading Overlay
+        const loader = document.getElementById('loading');
+        const loadText = document.getElementById('loading-text');
+        if (loadText) loadText.textContent = "Processing Order...";
+        loader.classList.remove('hidden');
+
         const payload = {
             clientId: CLIENT_ID,
+            clientName: document.getElementById('client-name-input').value,
+            clientAddress: document.getElementById('client-address-input').value,
             items: items,
             totalPieces: document.getElementById('total-pieces').textContent
         };
@@ -226,24 +626,81 @@
     function onOrderSuccess(response) {
         document.getElementById('order-form').classList.add('hidden');
         document.getElementById('success').classList.remove('hidden');
-        // Optionally show PDF link if returned (it is!)
-        if (response.pdfUrl) {
-            const p = document.createElement('p');
-            p.innerHTML = `<a href="${response.pdfUrl}" target="_blank">Download PDF Receipt</a>`;
-            document.getElementById('success').appendChild(p);
-        }
+        document.getElementById('header-total').classList.add('hidden'); // Hide Subtotal
+        document.getElementById('loading').classList.add('hidden'); // Hide Spinner
+        // PDF Link Removed by User Request
     }
 
     function onFailure(error) {
         showError("Error: " + error.message);
         const btn = document.getElementById('submit-btn');
-        btn.disabled = false;
-        btn.textContent = "Submit Order";
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Submit Order";
+        }
+        // Restore Form visibility if appropriate, or stay on error
+        // document.getElementById('order-form').classList.remove('hidden');
     }
 
     function showError(msg) {
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('error').classList.remove('hidden');
         document.getElementById('error-msg').textContent = msg;
+    }
+</script>
+
+<script>
+    /**
+     * Setup IntersectionObserver to detect when Product Headers stick
+     */
+    function setupStickyObservers() {
+        const summaries = document.querySelectorAll('.product-group-details > summary:not(.no-sticky)');
+        window.removeEventListener('scroll', checkStickyHeaders);
+        window.addEventListener('scroll', checkStickyHeaders);
+        checkStickyHeaders(); // Initial check
+    }
+
+    function checkStickyHeaders() {
+        const summaries = document.querySelectorAll('.product-group-details > summary:not(.no-sticky)');
+        const STICKY_TOP = 60; // Top offset
+
+        summaries.forEach(summary => {
+            const rect = summary.getBoundingClientRect();
+            if (rect.top <= STICKY_TOP + 1) {
+                summary.classList.add('is-pinned');
+            } else {
+                summary.classList.remove('is-pinned');
+            }
+        });
+    }
+
+    /**
+     * Group products by a "Base Name"
+     */
+    function groupProductsDynamically(products) {
+        const groups = {};
+        products.forEach(p => {
+            let base = p.name.replace(/\d+\s*(mg|g|ml|pk|pack|pcs)?/gi, "").trim();
+            base = base.replace(/[^a-zA-Z0-9]+$/, "").trim();
+            if (!base) base = p.name;
+            if (!groups[base]) groups[base] = [];
+            groups[base].push(p);
+        });
+        return groups;
+    }
+
+    /**
+     * Check if a group should be displayed as a 2D Matrix
+     */
+    function checkMatrixEligibility(products) {
+        const byVar = {};
+        products.forEach(p => {
+            const v = p.variation || "Standard";
+            if (!byVar[v]) byVar[v] = [];
+            byVar[v].push(p);
+        });
+        const hasMultipleSizes = Object.values(byVar).some(arr => arr.length > 1);
+        const hasMultipleVars = Object.keys(byVar).length > 1;
+        return hasMultipleSizes && hasMultipleVars;
     }
 </script>

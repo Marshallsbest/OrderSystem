@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <base target="_top">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Material Symbols -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+    <style>
+        :root {
+            --md-sys-color-primary: #006c4c;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-primary-container: #89f8c6;
+            --md-sys-color-on-primary-container: #002114;
+            --md-sys-color-surface: #fbfdf9;
+            --md-sys-color-surface-container: #edf2ea;
+            --md-sys-color-on-surface: #191c1a;
+            --md-sys-color-outline: #717974;
+            --md-sys-color-outline-variant: #c0c9c2;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--md-sys-color-surface);
+            color: var(--md-sys-color-on-surface);
+            margin: 0;
+            padding: 24px 16px;
+        }
+
+        h3 {
+            margin: 0 0 24px 0;
+            font-size: 22px;
+            font-weight: 400;
+            color: var(--md-sys-color-on-surface);
+        }
+
+        /* Material Input Field */
+        .md3-input-wrapper {
+            position: relative;
+            margin-bottom: 24px;
+        }
+
+        .md3-input-wrapper input,
+        .md3-input-wrapper textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--md-sys-color-outline);
+            border-radius: 4px;
+            /* Text field radius */
+            background: transparent;
+            font-family: inherit;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        .md3-input-wrapper input:focus,
+        .md3-input-wrapper textarea:focus {
+            outline: none;
+            border-color: var(--md-sys-color-primary);
+            border-width: 2px;
+            padding: 11px 15px;
+            /* Adjust for border width change */
+        }
+
+        .md3-input-wrapper label {
+            position: absolute;
+            left: 14px;
+            top: 13px;
+            background-color: var(--md-sys-color-surface);
+            padding: 0 4px;
+            color: var(--md-sys-color-outline);
+            font-size: 16px;
+            transition: all 0.2s ease;
+            pointer-events: none;
+        }
+
+        /* Floating Label Active State */
+        .md3-input-wrapper input:focus~label,
+        .md3-input-wrapper input:not(:placeholder-shown)~label,
+        .md3-input-wrapper textarea:focus~label,
+        .md3-input-wrapper textarea:not(:placeholder-shown)~label {
+            top: -9px;
+            font-size: 12px;
+            color: var(--md-sys-color-primary);
+            font-weight: 500;
+        }
+
+        /* Variations Section */
+        .variation-card {
+            background-color: var(--md-sys-color-surface-container);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 12px;
+            position: relative;
+            border: 1px solid transparent;
+        }
+
+        .variation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .variation-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        /* Compact inputs inside cards */
+        .compact-input input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+            background: #fff;
+        }
+
+        .compact-input input:focus {
+            outline: var(--md-sys-color-primary) solid 2px;
+            border-color: transparent;
+        }
+
+        /* Buttons */
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 20px;
+            padding: 10px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            width: 100%;
+            margin-top: 16px;
+        }
+
+        .btn-filled {
+            background-color: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-filled:hover {
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            opacity: 0.95;
+        }
+
+        .btn-filled:disabled {
+            background-color: #E0E0E0;
+            color: #9E9E9E;
+            box-shadow: none;
+            cursor: default;
+        }
+
+        .btn-tonal {
+            background-color: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            margin-top: 24px;
+        }
+
+        .btn-tonal:hover {
+            filter: brightness(0.95);
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #666;
+            padding: 4px;
+            border-radius: 50%;
+        }
+
+        .icon-btn:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: #B00020;
+        }
+
+        .material-symbols-outlined {
+            font-size: 20px;
+        }
+
+        .error {
+            color: #B00020;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .success {
+            color: #006c4c;
+            font-size: 13px;
+            margin-top: 8px;
+            font-weight: 500;
+        }
+
+        /* Transition */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h3>Add New Product</h3>
+
+    <div class="md3-input-wrapper">
+        <input type="text" id="baseName" placeholder=" " required>
+        <label>Base Product Name</label>
+    </div>
+
+    <div class="md3-input-wrapper">
+        <input type="text" id="category" placeholder=" " required>
+        <label>Category</label>
+    </div>
+
+    <div class="md3-input-wrapper">
+        <textarea id="description" rows="2" placeholder=" "></textarea>
+        <label>Description (Optional)</label>
+    </div>
+
+    <div class="md3-input-wrapper">
+        <input type="text" id="imageUrl" placeholder=" ">
+        <label>Image URL (Optional)</label>
+    </div>
+
+    <div id="variationList">
+        <!-- Rows will go here -->
+    </div>
+
+    <button class="btn btn-tonal" onclick="addVariationRow()">
+        <span class="material-symbols-outlined" style="margin-right:8px;">add</span>
+        Add Variation
+    </button>
+
+    <button class="btn btn-filled" onclick="submitForm()" id="submitBtn">
+        Submit Products
+    </button>
+
+    <div id="msg" class="error"></div>
+
+    <script>
+        let existingSkus = [];
+
+        // Load SKUs on start
+        window.onload = function () {
+            google.script.run.withSuccessHandler(skus => {
+                existingSkus = skus;
+            }).getExistingSkus();
+
+            addVariationRow(); // Add first row default
+        };
+
+        function addVariationRow() {
+            const div = document.createElement('div');
+            div.className = 'variation-card fade-in';
+            div.innerHTML = `
+                <div class="variation-header">
+                    <span>Variation Item</span>
+                    <button class="icon-btn" onclick="this.closest('.variation-card').remove()" title="Remove">
+                        <span class="material-symbols-outlined">delete</span>
+                    </button>
+                </div>
+                <div class="variation-grid">
+                    <div class="compact-input"><input type="text" class="var-name" placeholder="Name (e.g. Red)"></div>
+                    <div class="compact-input"><input type="text" class="var-ref" placeholder="Ref ID"></div>
+                    <div class="compact-input"><input type="text" class="var-sku" placeholder="SKU" oninput="this.value = this.value.toUpperCase()"></div>
+                    <div class="compact-input"><input type="number" class="var-price" placeholder="Price ($)" step="0.01"></div>
+                    <div class="compact-input" style="grid-column: span 2;"><input type="number" class="var-units" placeholder="Units per Case" value="1"></div>
+                </div>
+            `;
+            document.getElementById('variationList').appendChild(div);
+        }
+
+        function submitForm() {
+            const btn = document.getElementById('submitBtn');
+            const msg = document.getElementById('msg');
+            msg.textContent = "";
+            msg.className = "error";
+
+            const baseName = document.getElementById('baseName').value.trim();
+            const category = document.getElementById('category').value.trim();
+            const desc = document.getElementById('description').value.trim();
+            const img = document.getElementById('imageUrl').value.trim();
+
+            if (!baseName || !category) {
+                msg.textContent = "Please enter Base Name and Category.";
+                return;
+            }
+
+            // Gather Variations
+            const rows = document.querySelectorAll('.variation-card');
+            const newItems = [];
+            const currentBatchSkus = new Set();
+            let hasError = false;
+
+            rows.forEach(row => {
+                const vName = row.querySelector('.var-name').value.trim();
+                const vRef = row.querySelector('.var-ref').value.trim();
+                const sku = row.querySelector('.var-sku').value.trim();
+                const price = row.querySelector('.var-price').value.trim();
+                const units = row.querySelector('.var-units').value.trim();
+
+                if (!vName || !sku || !price) {
+                    msg.textContent = "Name, SKU, and Price are required for all variations.";
+                    hasError = true;
+                    return;
+                }
+
+                if (existingSkus.includes(sku) || currentBatchSkus.has(sku)) {
+                    msg.textContent = "Duplicate SKU found: " + sku;
+                    hasError = true;
+                    return;
+                }
+
+                currentBatchSkus.add(sku);
+
+                newItems.push({
+                    name: baseName,
+                    category: category,
+                    variation: vName,
+                    ref: vRef,
+                    sku: sku,
+                    price: price,
+                    unitsPerCase: units,
+                    description: desc,
+                    image: img
+                });
+            });
+
+            if (hasError) return;
+            if (newItems.length === 0) {
+                msg.textContent = "Add at least one variation.";
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = "Processing...";
+
+            google.script.run
+                .withSuccessHandler(res => {
+                    btn.disabled = false;
+                    btn.textContent = "Submit Products";
+                    if (res.success) {
+                        msg.className = "success";
+                        msg.textContent = "Success! Added " + res.count + " items.";
+                        // Clear form maybe?
+                        document.getElementById('baseName').value = "";
+                        document.getElementById('variationList').innerHTML = "";
+                        addVariationRow();
+                        // Update local SKUs
+                        newItems.forEach(i => existingSkus.push(i.sku));
+                    } else {
+                        msg.textContent = "Error adding products.";
+                    }
+                })
+                .withFailureHandler(e => {
+                    btn.disabled = false;
+                    msg.textContent = "Error: " + e.message;
+                })
+                .addProductBatch(newItems);
+        }
+    </script>
+</body>
+
+</html>
