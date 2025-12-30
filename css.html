@@ -386,17 +386,14 @@
 
     .header-expanded-content .col-data {
         /* Ensure header cols use same flex props as body cols */
-        flex: 0 0 auto;
+        flex: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        width: 80px;
-        /* Fixed Width for Alignment */
-        min-width: 80px;
+        min-width: 65px;
         text-align: center;
         font-size: 13px;
-        /* Slightly smaller header text */
         font-weight: 500;
         line-height: 1.2;
     }
@@ -412,6 +409,10 @@
         flex-direction: column;
         width: 100%;
         overflow-x: auto;
+        border-bottom-left-radius: 8px;
+        /* Ensure container matches row */
+        border-bottom-right-radius: 8px;
+        /* overflow: hidden; Removed to allow scroll */
     }
 
     .grid-data-row {
@@ -436,11 +437,9 @@
 
 
     .col-name {
-        flex: 1;
-        /* Takes most space */
-        min-width: 120px;
-        /* Ensure name has space */
-        /* truncate */
+        flex: 1.5;
+        /* Takes more space */
+        min-width: 100px;
         font-weight: 500;
         text-align: left;
         white-space: normal;
@@ -448,20 +447,20 @@
     }
 
     .col-data {
-        flex: 0 0 auto;
-        /* Do not grow/shrink */
+        flex: 1;
+        /* Parametric - grows to fill space */
+        min-width: 65px;
+        /* Minimum for input */
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        width: 80px;
-        /* Fixed Width for Alignment */
-        min-width: 80px;
-        /* Ensure space for input/price */
     }
 
     .table-input {
-        width: 60px;
+        width: 100%;
+        /* Fill column width (max 60ish) */
+        max-width: 60px;
         height: 36px;
         text-align: center;
         border: 1px solid var(--md-sys-color-outline);

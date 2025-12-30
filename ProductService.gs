@@ -24,51 +24,54 @@ function getProductCatalog() {
 
     // 2. Map Headers to Indices
     const map = {
-        ref: -1, sku: -1, category: -1, name: -1, variation: -1, price: -1, unitsPerCase: -1,
-        salePrice: -1, onSale: -1, description: -1, image: -1
+        status: -1, sku: -1, ref: -1, name: -1, variation: -1, price: -1, category: -1,
+        quantity: -1, image: -1, backgroundColor: -1, description: -1,
+        salePrice: -1, onSale: -1 // Keep these just in case, though not in user list
     };
 
     headers.forEach((h, i) => {
         const header = String(h).trim().toLowerCase();
-        // Loose matching
-        if (header.includes('ref')) map.ref = i;
-        else if (header.includes('sku')) map.sku = i;
-        else if (header.includes('category')) map.category = i;
-        else if (header === 'name' || header.includes('product name')) map.name = i;
-        else if (header.includes('variation')) map.variation = i;
-        else if (header === 'price' || header.includes('unit price') && !header.includes('sale')) map.price = i;
-        else if (header.includes('units') && header.includes('case')) map.unitsPerCase = i;
 
-        // New Fields
+        if (header === 'status') map.status = i;
+        else if (header === 'sku') map.sku = i;
+        else if (header === 'reference character') map.ref = i;
+        else if (header === 'product name') map.name = i;
+        else if (header === 'variation name') map.variation = i;
+        else if (header === 'price') map.price = i;
+        else if (header === 'category') map.category = i;
+        else if (header === 'quantity') map.quantity = i; // Units Per Case effectively
+        else if (header === 'image') map.image = i;
+        else if (header === 'colour' || header === 'color') map.backgroundColor = i;
+        else if (header === 'description') map.description = i;
+
+        // Legacy/Extra support
         else if (header.includes('sale price')) map.salePrice = i;
         else if (header.includes('on sale')) map.onSale = i;
-        else if (header.includes('description')) map.description = i;
-        else if (header.includes('image')) map.image = i;
     });
-
-    // Fallback? If specific critical columns are missing, maybe we default to standard indices or just fail gracefully.
-    // Let's assume standard indices if dynamic fails for SKU or Name
-    if (map.sku === -1) map.sku = 1;
-    if (map.name === -1) map.name = 3;
-    if (map.category === -1) map.category = 2; // Default if not found
 
     // 3. Get Data
     const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
 
-    return data.map(row => ({
-        ref: map.ref > -1 ? row[map.ref] : "",
-        sku: map.sku > -1 ? row[map.sku] : "",
-        category: map.category > -1 ? row[map.category] : "Uncategorized",
-        name: map.name > -1 ? row[map.name] : "",
-        variation: map.variation > -1 ? row[map.variation] : "",
-        price: map.price > -1 ? row[map.price] : 0,
-        unitsPerCase: map.unitsPerCase > -1 ? row[map.unitsPerCase] : "",
-        // New Fields
-        salePrice: map.salePrice > -1 ? row[map.salePrice] : 0,
-        onSale: map.onSale > -1 ? Boolean(row[map.onSale]) : false,
-        description: map.description > -1 ? row[map.description] : "",
-        image: map.image > -1 ? row[map.image] : ""
-    })).filter(p => p.sku && p.name);
+    return data.map(row => {
+        // Optional Status Check? User didn't specify, but let's strict check if 'Inactive' exists
+        const status = map.status > -1 ? String(row[map.status]).toLowerCase() : "active";
+        if (status === 'inactive' || status === 'archived') return null;
+
+        return {
+            ref: map.ref > -1 ? row[map.ref] : "",
+            sku: map.sku > -1 ? row[map.sku] : "",
+            category: map.category > -1 ? row[map.category] : "Uncategorized",
+            name: map.name > -1 ? row[map.name] : "",
+            variation: map.variation > -1 ? row[map.variation] : "",
+            price: map.price > -1 ? row[map.price] : 0,
+            unitsPerCase: map.quantity > -1 ? row[map.quantity] : 1, // Map Quantity to unitsPerCase
+            salePrice: map.salePrice > -1 ? row[map.salePrice] : 0,
+            onSale: map.onSale > -1 ? Boolean(row[map.onSale]) : false,
+            description: map.description > -1 ? row[map.description] : "",
+            image: map.image > -1 ? row[map.image] : "",
+            backgroundColor: map.backgroundColor > -1 ? row[map.backgroundColor] : ""
+        };
+    }).filter(p => p && p.sku && p.name);
 }
 
 /**

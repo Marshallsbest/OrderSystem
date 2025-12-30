@@ -66,15 +66,15 @@ function setupSettingsSheet() {
         sheet.getRange("F2").setValue("TRUE");
     }
 
-    // Category Section Headers (User Requested F, G, H, I)
+    // Category Section Headers (User Modified: F=Name, G=Color, H=SaleActive, I=Order)
     const catHeader = sheet.getRange("F1:I1");
     if (catHeader.getValues()[0][0] !== "Category Name") {
-        catHeader.setValues([["Category Name", "Color", "Display Order", "Sale Active?"]]);
+        catHeader.setValues([["Category Name", "Color", "Sale Active?", "Display Order"]]);
         catHeader.setFontWeight("bold").setBackground("#e0e0e0");
-        sheet.getRange("H1").setNote("Enter a number (1, 2, 3...) to control display order.");
-        sheet.getRange("I1").setNote("TRUE/FALSE checkbox to enable sale mode for this category.");
-        // Add Checkboxes to Column I (Rows 2-20)
-        sheet.getRange("I2:I20").insertCheckboxes();
+        sheet.getRange("H1").setNote("TRUE/FALSE checkbox to enable sale mode for this category.");
+        sheet.getRange("I1").setNote("Enter a number (1, 2, 3...) to control display order.");
+        // Add Checkboxes to Column H (Rows 2-20)
+        sheet.getRange("H2:H20").insertCheckboxes();
     }
 
     // Formatting
@@ -103,7 +103,7 @@ function setupOrderDataSheet() {
 
 /**
  * Fetch Category Settings (Colors & Order & SaleStatus)
- * Reads F/G/H/I for Category Meta: Name, Color, Order, SaleActive
+ * Reads F/G/H/I for Category Meta: Name, Color, SaleActive, Order
  * Returns: { "CategoryName": { color: "#Hex", order: 1, saleActive: true }, ... }
  */
 function getCategorySettings() {
@@ -128,15 +128,17 @@ function getCategorySettings() {
     }
 
     // 2. Read Category Settings from F2:I20
-    // F=Name, G=Color, H=Order, I=SaleActive
+    // F=Name(0), G=Color(1), H=SaleActive(2), I=Order(3)
     if (sheet) {
         // Extend range to I
         const catData = sheet.getRange("F2:I20").getValues();
         catData.forEach(row => {
             const cat = String(row[0]).trim();
             const color = String(row[1]).trim();
-            const order = parseInt(row[2]); // might be NaN
-            const saleActive = (row[3] === true || String(row[3]).toUpperCase() === 'TRUE');
+
+            // New Mapping based on User's Manual Column Insert
+            const saleActive = (row[2] === true || String(row[2]).toUpperCase() === 'TRUE');
+            const order = parseInt(row[3]); // Now in 4th position (index 3)
 
             if (cat) {
                 if (!settings[cat]) settings[cat] = { color: "#cccccc", order: 999, saleActive: false };

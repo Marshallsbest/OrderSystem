@@ -18,6 +18,26 @@
     }
 
     /**
+     * Helper: Escape Regex Characters
+     */
+    function escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    /**
+     * Helper: Calculate Contrast Color (Black or White) from Hex
+     */
+    function getContrastYIQ(hexcolor) {
+        hexcolor = hexcolor.replace("#", "");
+        var r = parseInt(hexcolor.substr(0, 2), 16);
+        var g = parseInt(hexcolor.substr(2, 2), 16);
+        var b = parseInt(hexcolor.substr(4, 2), 16);
+        var yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+        // User prefers white text on pink (#ed7bd0 = ~166 YIQ). Raising threshold to 190 to force white.
+        return (yiq >= 190) ? 'black' : 'white';
+    }
+
+    /**
      * Initialize
      */
     window.onload = function () {
@@ -187,15 +207,23 @@
         if (window.categorySettings) {
             Object.keys(window.categorySettings).forEach(cat => {
                 const setting = window.categorySettings[cat];
-                // Check if setting is an object (new format) or string (fallback)
                 const color = (typeof setting === 'object' && setting.color) ? setting.color : (typeof setting === 'string' ? setting : null);
 
                 const cleanClass = toCssClass(cat);
                 if (cleanClass && color) {
-                    // Target both summary and its inner content to ensure color visibility
-                    cssRules += `.${cleanClass}[open] > summary, .${cleanClass}[open] > summary .header-content { background-color: ${color} !important; }\n`;
-                    // Rule 2: Matrix Header Background (Nested)
-                    cssRules += `.${cleanClass} .matrix-header-row { background-color: ${color} !important; }\n`;
+                    const textColor = getContrastYIQ(color);
+                    // 1. Apply Color to Category Header ONLY when OPEN
+                    cssRules += `.${cleanClass}[open] > .category-summary { background-color: ${color} !important; color: ${textColor} !important; }\n`;
+                    // 2. Add Top Radius when Expanded (or always, as requested for "top of them")
+                    cssRules += `.${cleanClass}[open] > .category-summary { border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }\n`;
+                    // 3. Round bottom if closed
+                    cssRules += `.${cleanClass}:not([open]) > .category-summary { border-radius: 12px; transition: border-radius 0.2s ease; }\n`;
+
+                    // Matrix Header Background (if used)
+                    cssRules += `.${cleanClass} .matrix-header-row { background-color: ${color} !important; color: ${textColor} !important; }\n`;
+
+                    // Set variable for generic usage
+                    cssRules += `.${cleanClass} { --category-color: ${color}; }\n`;
                 }
             });
         }
@@ -276,7 +304,7 @@
                         return numA - numB;
                     });
                     colDefs = allNames.map(name => {
-                        const regex = new RegExp(baseName, "i");
+                        const regex = new RegExp(escapeRegex(baseName), "i");
                         let label = name.replace(regex, "").trim();
                         if (!label) label = "Std";
                         const p = group.find(prod => prod.name === name);
@@ -284,11 +312,24 @@
                         return { label: label, price: price, name: name };
                     });
                 } else {
-                    // ... (Standard logic unchanged) ...
-                    const showCase = group.some(p => p.unitsPerCase > 1);
+                    // Standard / Compact Logic
+                    // Check for Case existence and common units
+                    const caseProducts = group.filter(p => (parseInt(p.unitsPerCase) || 1) > 1);
+                    const showCase = caseProducts.length > 0;
+
+                    let caseHeaderLabel = "Case";
+                    // Check if all cases have same size
+                    if (showCase) {
+                        const firstSize = parseInt(caseProducts[0].unitsPerCase) || 1;
+                        const allSame = caseProducts.every(p => (parseInt(p.unitsPerCase) || 1) === firstSize);
+                        if (allSame) {
+                            caseHeaderLabel += ` <br><span style="font-size:10px; opacity:0.8;">(Box ${firstSize})</span>`;
+                        }
+                    }
+
                     headerColsHtml += `<div class="col-data"><span>Qty</span></div>`;
                     headerColsHtml += `<div class="col-data"><span>Price</span></div>`;
-                    if (showCase) headerColsHtml += `<div class="col-data"><span>Case</span></div>`;
+                    if (showCase) headerColsHtml += `<div class="col-data"><span>${caseHeaderLabel}</span></div>`;
                 }
 
                 // Determine Sticky
@@ -307,9 +348,36 @@
                 if (!isSticky) prodSummary.classList.add('no-sticky');
 
                 // MAIN FLEX HEADER
+                // Determine Header Color
+                // 1. Try first product in group for specific override
+                const leader = group[0];
+                const headerColor = leader.backgroundColor ? leader.backgroundColor : "";
+
+                // Color Logic: Use only when expanded
+                const groupClass = 'prod-' + escapeRegex(baseName).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+                prodDetails.classList.add(groupClass);
+
+                if (headerColor) {
+                    const dynamicStyle = document.getElementById('dynamic-cat-syles');
+                    if (dynamicStyle) {
+                        // Apply color ONLY when open, with Contrast Text
+                        // Target PARENT summary for proper full-width background
+                        const textColor = getContrastYIQ(headerColor);
+                        dynamicStyle.textContent += `.${groupClass}[open] > summary { background-color: ${headerColor} !important; }\n`;
+                        dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content { background-color: transparent !important; color: ${textColor} !important; }\n`;
+                        dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content a { color: ${textColor} !important; }\n`;
+                    }
+                }
+
                 prodSummary.innerHTML = `
                     <div class="header-content grid-header-row">
-                        <span class="prod-title col-name">${baseName}</span>
+                        <span class="prod-title col-name">
+                            ${baseName}
+                            ${(leader.image || leader.description) ?
+                        `<a href="#" onclick="showDetails(event, '${leader.name}', '${(leader.description || "").replace(/'/g, "\\'")}', '${(leader.image || "").replace(/'/g, "\\'")}', '${Number(leader.salePrice || 0)}', '${Number(leader.price || 0)}')" 
+                                   style="font-size:11px; margin-left:8px; color:inherit; text-decoration:underline; opacity:0.9;">Details</a>`
+                        : ""}
+                        </span>
                         <div class="header-expanded-content">
                             ${headerColsHtml}
                         </div>
@@ -341,7 +409,10 @@
     // --- FLEX RENDER FUNCTIONS ---
 
     // --- DETAILS BUBBLE LOGIC ---
-    function showDetails(name, desc, img) {
+    // --- DETAILS BUBBLE LOGIC ---
+    function showDetails(event, name, desc, img, salePrice, regPrice) {
+        if (event) event.stopPropagation();
+
         const overlay = document.getElementById('bubble-overlay');
         const bubble = document.getElementById('details-bubble');
         const titleEl = document.getElementById('bubble-title');
@@ -349,7 +420,22 @@
         const imgContainer = document.getElementById('bubble-img-container');
 
         titleEl.textContent = name;
-        descEl.textContent = desc || "No description available.";
+
+        // Price Logic in Bubble
+        let priceHtml = "";
+        const sPrice = Number(salePrice);
+        const rPrice = Number(regPrice);
+
+        if (sPrice > 0) {
+            priceHtml = `<div style="margin-bottom:8px;">
+                            <span style="text-decoration:line-through; color:#999; margin-right:8px;">$${rPrice.toFixed(2)}</span>
+                            <span style="color:#D32F2F; font-weight:bold; font-size:1.1em;">$${sPrice.toFixed(2)}</span>
+                         </div>`;
+        } else {
+            priceHtml = `<div style="margin-bottom:8px; font-weight:bold;">$${rPrice.toFixed(2)}</div>`;
+        }
+
+        descEl.innerHTML = priceHtml + (desc || "No description available.");
 
         imgContainer.innerHTML = "";
         if (img) {
@@ -438,80 +524,112 @@
     }
 
     function renderCompactTableFlex(title, products) {
-        products.sort((a, b) => a.name.localeCompare(b.name));
-        const showCase = products.some(p => p.unitsPerCase > 1);
-
-        let html = `<div class="table-container">`;
+        // 1. Group by Variation to merge Single + Case
+        const merged = {};
+        const orderedKeys = []; // Keep track of insertion order for Sheet Sort
 
         products.forEach(p => {
             let label = p.variation;
             if (!label || label === "Standard") {
-                const regex = new RegExp(title, "i");
-                label = p.name.replace(regex, "").trim();
+                // Regex: Match Base Name at START of string only
+                const regex = new RegExp("^" + escapeRegex(title), "i");
+                if (title && p.name) {
+                    label = p.name.replace(regex, "").trim();
+                    // Remove leading special chars that might remain (like " - " or " & ")
+                    label = label.replace(/^[\s\-\&]+/, "").trim();
+                }
             }
-            if (!label) label = "Standard";
+            if (!label) label = "Standard"; // Fallback
 
-            // Sales Logic
-            const catSetting = window.categorySettings && window.categorySettings[p.category];
+            // Normalize label key
+            const key = label.toLowerCase();
+
+            // If new key, add to ordered list
+            if (!merged[key]) {
+                merged[key] = { label: label, single: null, case: null };
+                orderedKeys.push(key);
+            }
+
+            // Heuristic: If unitsPerCase > 1, it's a case
+            const units = parseInt(p.unitsPerCase) || 1;
+            if (units > 1) {
+                merged[key].case = p;
+            } else {
+                merged[key].single = p;
+            }
+        });
+
+        // Use VALIDATED SHEET ORDER (No alphabetic sort)
+        const rows = orderedKeys.map(k => merged[k]);
+
+        // Determine if we need the "Case" column at all for this group
+        const hasAnyCase = rows.some(r => r.case !== null);
+
+        let html = `<div class="table-container">`;
+
+        rows.forEach(r => {
+            const pSingle = r.single;
+            const pCase = r.case;
+            // Use single as leader for badges/info, fallback to case
+            const leader = pSingle || pCase;
+
+            // Sales Logic (Leader)
+            const catSetting = window.categorySettings && window.categorySettings[leader.category];
             const catSaleActive = catSetting ? catSetting.saleActive : false;
+            const isSale = catSaleActive && leader.onSale && (leader.salePrice > 0);
 
-            const isSale = catSaleActive && p.onSale && (p.salePrice > 0);
-            const activePrice = isSale ? p.salePrice : p.price;
-
-            // Info Icon Logic
+            // Info Icon
             let infoHtml = "";
-            if (p.description || p.image) {
-                // Escape quotes for safety
-                const cleanName = (p.name + " " + (p.variation || "")).replace(/"/g, "&quot;");
-                const cleanDesc = (p.description || "").replace(/"/g, "&quot;");
-                const cleanImg = (p.image || "").replace(/"/g, "&quot;");
-                infoHtml = `<span class="info-icon" onclick="showDetails('${cleanName}', '${cleanDesc}', '${cleanImg}')">i</span>`;
+            if (leader.description || leader.image) {
+                const cleanName = (leader.name + " " + (leader.variation || "")).replace(/"/g, "&quot;");
+                const cleanDesc = (leader.description || "").replace(/"/g, "&quot;");
+                const cleanImg = (leader.image || "").replace(/"/g, "&quot;");
+                const sPrice = Number(leader.salePrice) || 0;
+                const rPrice = Number(leader.price) || 0;
+                infoHtml = `<span class="info-icon" onclick="showDetails(event, '${cleanName}', '${cleanDesc}', '${cleanImg}', '${sPrice}', '${rPrice}')">i</span>`;
             }
 
             html += `<div class="grid-data-row">`;
             html += `<div class="col-name">
-                        ${label} 
+                        ${r.label} 
                         ${isSale ? '<span class="sale-badge">SALE</span>' : ''}
                         ${infoHtml}
                      </div>`;
 
-            html += `<div class="col-data">
-                        <input type="number"
-                               inputmode="numeric"
-                               pattern="[0-9]*"
-                               min="0"
-                               data-sku="${p.sku}"
-                               data-type="unit"
-                               class="table-input qty-input"
-                               placeholder="0">
-                     </div>`;
-
-            // Price Column
+            // --- SINGLE COLUMN ---
             html += `<div class="col-data">`;
-            if (isSale) {
-                html += `<span class="original-price-strikethrough">$${Number(p.price).toFixed(2)}</span>`;
-                html += `<span class="sale-price-highlight">$${Number(p.salePrice).toFixed(2)}</span>`;
+            if (pSingle) {
+                const isSingleSale = catSaleActive && pSingle.onSale && (pSingle.salePrice > 0);
+                const displayPrice = isSingleSale ? pSingle.salePrice : pSingle.price;
+                const priceClass = isSingleSale ? "sale-price-highlight" : "";
+
+                html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
+                               data-sku="${pSingle.sku}" data-type="unit"
+                               class="table-input qty-input" placeholder="0">`;
+                html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
+                if (isSingleSale) html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
             } else {
-                html += `<span>$${Number(p.price).toFixed(2)}</span>`;
+
+                html += `<span style="color:#ccc;">-</span>`;
             }
             html += `</div>`;
 
-            if (showCase) {
+            // --- CASE COLUMN ---
+            if (hasAnyCase) {
                 html += `<div class="col-data">`;
-                if (p.unitsPerCase) {
-                    html += `
-                        <input type="number"
-                               inputmode="numeric"
-                               pattern="[0-9]*"
-                               min="0"
-                               data-sku="${p.sku}"
-                               data-per-case="${p.unitsPerCase}"
-                               data-type="case"
-                               class="table-input qty-input"
-                               placeholder="0">
-                        <span class="price-sub">x${p.unitsPerCase}</span>`;
+                if (pCase) {
+                    const units = parseInt(pCase.unitsPerCase);
+                    // Check if Case itself is on sale (usually inherits status, but check attributes)
+                    const isCaseSale = catSaleActive && pCase.onSale && (pCase.salePrice > 0);
+                    const casePrice = isCaseSale ? pCase.salePrice : pCase.price;
+                    const cPriceClass = isCaseSale ? "sale-price-highlight" : "";
+
+                    html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
+                                   data-sku="${pCase.sku}" data-type="case" data-per-case="${units}"
+                                   class="table-input qty-input" placeholder="0">`;
+                    html += `<div class="price-sub ${cPriceClass}">$${Number(casePrice).toFixed(2)}</div>`;
                 } else {
-                    html += `-`;
+                    html += `<span style="color:#ccc;">-</span>`;
                 }
                 html += `</div>`;
             }
@@ -708,8 +826,17 @@
             if (!byVar[v]) byVar[v] = [];
             byVar[v].push(p);
         });
-        const hasMultipleSizes = Object.values(byVar).some(arr => arr.length > 1);
+
+        // We only want Matrix layout if we have multiple NAMES (Columns) for the variations.
+        // e.g. "Flavor X" comes in "100mg" and "200mg" (Different p.name).
+        // If "Flavor X" comes in "Single" and "Case" (Same p.name, different Qty), 
+        // that should NOT trigger Matrix, but go to Compact view to show side-by-side inputs.
+        const hasMultipleCols = Object.values(byVar).some(arr => {
+            const uniqueNames = new Set(arr.map(p => p.name));
+            return uniqueNames.size > 1;
+        });
+
         const hasMultipleVars = Object.keys(byVar).length > 1;
-        return hasMultipleSizes && hasMultipleVars;
+        return hasMultipleCols && hasMultipleVars;
     }
 </script>
