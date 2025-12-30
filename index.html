@@ -18,7 +18,7 @@
   <!-- App Bar -->
   <header class="md3-top-app-bar">
     <div class="md3-top-app-bar__content">
-      <h1 class="md3-headline-medium">Order Form v1.3.10</h1>
+      <h1 class="md3-headline-medium">Order Form v1.3.21</h1>
       <div id="header-total" class="md3-title-large" style="font-weight: bold;">Total: $0.00</div>
     </div>
   </header>
@@ -87,11 +87,29 @@
         <div class="total-preview">
           <span>Total Pieces: <strong id="total-pieces">0</strong></span>
         </div>
-        <button type="button" id="submit-btn" class="md3-btn-filled" onclick="submitOrder()">
-          Submit Order
+        <button type="button" id="submit-btn" class="md3-btn-filled" onclick="reviewOrder()">
+          Checkout
         </button>
       </div>
     </form>
+
+    <!-- Review State -->
+    <div id="review-view" class="state-view hidden" style="padding: 20px; max-width: 900px; margin: 0 auto;">
+      <h2 class="md3-headline-medium" style="margin-bottom: 20px;">Review Your Order</h2>
+      <div id="review-summary-container"></div>
+
+      <!-- Client Info Summary (Optional, but good for verification) -->
+      <div id="review-client-info"
+        style="margin: 20px 0; text-align: left; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+        <!-- Populated by JS -->
+      </div>
+
+      <div style="display: flex; gap: 16px; justify-content: center; margin-top: 30px;">
+        <button type="button" class="md3-btn-filled" style="background-color:#757575;"
+          onclick="backToEdit()">Back</button>
+        <button type="button" id="confirm-btn" class="md3-btn-filled" onclick="confirmOrder()">Confirm & Submit</button>
+      </div>
+    </div>
 
     <!-- Success State -->
     <div id="success" class="state-view hidden">
@@ -128,7 +146,7 @@
   <?!= include('js'); ?>
   <!-- Version Footer -->
   <div style="text-align: center; color: #aaa; font-size: 12px; padding: 20px;">
-    v1.3.10
+    v1.3.21
   </div>
 </body>
 

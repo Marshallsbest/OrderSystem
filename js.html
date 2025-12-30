@@ -33,9 +33,11 @@
         var g = parseInt(hexcolor.substr(2, 2), 16);
         var b = parseInt(hexcolor.substr(4, 2), 16);
         var yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-        // Standard threshold 128 ensures Black text on light colors
-        return (yiq >= 128) ? 'black' : 'white';
+        // Reverted to 190 per user request to prefer White text
+        return (yiq >= 190) ? 'black' : 'white';
     }
+
+
 
     /**
      * Initialize
@@ -279,7 +281,15 @@
 
             const catSummary = document.createElement('summary');
             catSummary.className = "md3-headline-medium category-summary";
-            catSummary.textContent = cat;
+            // Use innerHTML to add Subtotal Span
+            catSummary.innerHTML = `
+                <span style="flex:1;">${cat}</span>
+                <span class="cat-subtotal" style="font-size:0.8em; opacity:0.9; margin-left:12px; font-weight:bold; display:none;">$0.00</span>
+            `;
+            // Ensure Flex display for spacing
+            catSummary.style.display = "flex";
+            catSummary.style.justifyContent = "space-between";
+            catSummary.style.alignItems = "center";
             catDetails.appendChild(catSummary);
 
             const catContent = document.createElement('div');
@@ -353,6 +363,7 @@
                 // 1. Try first product in group for specific override
                 const leader = group[0];
                 const headerColor = leader.backgroundColor ? leader.backgroundColor : "";
+                const headerTextColor = leader.textColor ? leader.textColor : "";
 
                 // Color Logic: Use only when expanded
                 const groupClass = 'prod-' + escapeRegex(baseName).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
@@ -361,9 +372,9 @@
                 if (headerColor) {
                     const dynamicStyle = document.getElementById('dynamic-cat-syles');
                     if (dynamicStyle) {
-                        // Apply color ONLY when open, with Contrast Text
+                        // Apply color ONLY when open, with Contrast Text or Explicit Text Color
                         // Target PARENT summary for proper full-width background
-                        const textColor = getContrastYIQ(headerColor);
+                        const textColor = headerTextColor ? headerTextColor : getContrastYIQ(headerColor);
                         dynamicStyle.textContent += `.${groupClass}[open] > summary { background-color: ${headerColor} !important; }\n`;
                         dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content { background-color: transparent !important; color: ${textColor} !important; }\n`;
                         dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content a { color: ${textColor} !important; }\n`;
@@ -379,6 +390,10 @@
                                    style="font-size:11px; margin-left:8px; color:inherit; text-decoration:underline; opacity:0.9;">Details</a>`
                         : ""}
                         </span>
+                        
+                        <!-- Subtotal Span -->
+                        <span class="prod-subtotal" style="font-size:0.9em; font-weight:bold; margin-right: 12px; display:none;">$0.00</span>
+                        
                         <div class="header-expanded-content">
                             ${headerColsHtml}
                         </div>
@@ -387,7 +402,7 @@
                 prodDetails.appendChild(prodSummary);
 
                 const prodContent = document.createElement('div');
-                prodContent.className = "product-content";
+                prodContent.className = "product-content details-animation-wrapper"; // Added wrapper class
 
                 if (isMatrix) {
                     prodContent.innerHTML = renderMatrixGroupFlex(baseName, group, colDefs);
@@ -399,12 +414,99 @@
                 catContent.appendChild(prodDetails);
             });
 
-            catDetails.appendChild(catContent);
+            // Wrap category content as well for animation
+            const catWrapper = document.createElement('div');
+            catWrapper.className = "details-animation-wrapper";
+            catWrapper.appendChild(catContent);
+
+            catDetails.appendChild(catWrapper);
             container.appendChild(catDetails);
         });
 
         attachInputListeners();
         setupStickyObservers();
+
+        // Initialize Accordion Animation Logic
+        initAccordionAnimation();
+    }
+
+    // --- ACCORDION ANIMATION HELPER ---
+    function initAccordionAnimation() {
+        // Remove existing listener if any (benign to re-add if careful, but best to be safe)
+        // Since this runs on render, checking a global flag or delegate
+        if (window._accordionInitialized) return;
+        window._accordionInitialized = true;
+
+        document.addEventListener('click', function (e) {
+            const summary = e.target.closest('summary');
+            if (!summary) return;
+
+            const details = summary.parentElement;
+            if (!details) return;
+
+            // Check if it's one of our animated details
+            // Look for the wrapper child
+            const wrapper = details.querySelector('.details-animation-wrapper');
+            if (!wrapper) return;
+
+            e.preventDefault(); // Prevent default browser toggle
+
+            if (details.open) {
+                // CLOSE ANIMATION
+                // 1. Set explicit height to current scrollHeight (transition start point)
+                const startHeight = wrapper.offsetHeight;
+
+                // IMPORTANT: Set overflow hidden to allow height animation
+                wrapper.style.overflow = 'hidden';
+
+                wrapper.style.height = startHeight + 'px';
+
+                // Force Reflow
+                wrapper.offsetHeight;
+
+                // 2. Set to 0
+                wrapper.style.height = '0px';
+
+                // 3. Remove open attribute after transition
+                // Use a one-time listener
+                wrapper.addEventListener('transitionend', function onEnd() {
+                    wrapper.removeEventListener('transitionend', onEnd);
+                    if (wrapper.style.height === '0px') { // Check we didn't interrupt
+                        details.open = false;
+                        wrapper.style.height = ''; // Clean up
+                    }
+                });
+
+            } else {
+                // OPEN ANIMATION
+                // 1. Add open attribute
+                details.open = true;
+
+                // 2. Get target height
+                // Temporarily unrestrict height to measure
+                wrapper.style.height = 'auto';
+                const targetHeight = wrapper.scrollHeight;
+
+                // 3. Set start height to 0
+                wrapper.style.height = '0px';
+
+                // Force Reflow
+                wrapper.offsetHeight;
+
+                // 4. Animate to target
+                wrapper.style.height = targetHeight + 'px';
+
+                // 5. Clean up after transition
+                wrapper.addEventListener('transitionend', function onEnd() {
+                    wrapper.removeEventListener('transitionend', onEnd);
+                    if (wrapper.style.height !== '0px') {
+                        wrapper.style.height = 'auto'; // allow dynamic content growth
+                        // RESTORE STICKY: Allow overflow so sticky descendants work
+                        wrapper.style.overflow = 'visible';
+                    }
+                });
+            }
+        });
     }
 
     // --- FLEX RENDER FUNCTIONS ---
@@ -504,6 +606,8 @@
                                min="0"
                                data-sku="${product.sku}"
                                data-type="unit"
+                               data-category="${product.category}"
+                               data-group="${escapeRegex(title)}"
                                class="table-input qty-input"
                                placeholder="0">`;
 
@@ -513,7 +617,7 @@
                     }
 
                 } else {
-                    html += `-`;
+                    html += `- `;
                 }
                 html += `</div>`;
             });
@@ -605,13 +709,15 @@
                 const priceClass = isSingleSale ? "sale-price-highlight" : "";
 
                 html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
-                               data-sku="${pSingle.sku}" data-type="unit"
-                               class="table-input qty-input" placeholder="0">`;
-                html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
-                if (isSingleSale) html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
-            } else {
+                    data-sku="${pSingle.sku}" data-type="unit"
+                    data-category="${leader.category}" data-group="${escapeRegex(title)}"
+                    class="table-input qty-input" placeholder="0">`;
 
-                html += `<span style="color:#ccc;">-</span>`;
+                // ALWAYS Show Price
+                html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
+                if (isSingleSale) {
+                    html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
+                }
             }
             html += `</div>`;
 
@@ -626,16 +732,22 @@
                     const cPriceClass = isCaseSale ? "sale-price-highlight" : "";
 
                     html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
-                                   data-sku="${pCase.sku}" data-type="case" data-per-case="${units}"
-                                   class="table-input qty-input" placeholder="0">`;
+                    data-sku="${pCase.sku}" data-type="case" data-per-case="${units}"
+                    data-category="${leader.category}" data-group="${escapeRegex(title)}"
+                    class="table-input qty-input" placeholder="0">`;
+
+                    // ALWAYS Show Price
                     html += `<div class="price-sub ${cPriceClass}">$${Number(casePrice).toFixed(2)}</div>`;
+                    if (isCaseSale) {
+                        html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pCase.price).toFixed(2)}</div>`;
+                    }
                 } else {
                     html += `<span style="color:#ccc;">-</span>`;
                 }
-                html += `</div>`;
+                html += `</div > `;
             }
 
-            html += `</div>`;
+            html += `</div > `;
         });
 
         html += `</div>`;
@@ -657,7 +769,18 @@
         let totalPieces = 0;
         let grandTotal = 0;
 
+        // Maps to store element totals
+        const catTotals = new Map();
+        const prodTotals = new Map();
+
         const inputs = document.querySelectorAll('.qty-input');
+
+        // Reset Spans first (Visual reset)
+        // We will only show them if > 0 later
+        document.querySelectorAll('.cat-subtotal, .prod-subtotal').forEach(el => {
+            el.style.display = 'none';
+        });
+
         inputs.forEach(input => {
             const val = parseInt(input.value) || 0;
             if (val > 0) {
@@ -676,27 +799,66 @@
                     const isOnSale = catSaleActive && product.onSale && salePrice > 0;
                     const finalPrice = isOnSale ? salePrice : price;
 
+                    let lineTotal = 0;
                     if (input.dataset.type === 'case') {
                         const perCase = parseInt(input.dataset.perCase) || 1;
                         totalPieces += (val * perCase);
-                        grandTotal += (finalPrice * perCase * val);
+                        lineTotal = (finalPrice * val);
                     } else {
                         // Unit
                         totalPieces += val;
-                        grandTotal += (finalPrice * val);
+                        lineTotal = (finalPrice * val);
+                    }
+                    grandTotal += lineTotal;
+
+                    // Aggregate for Headers
+                    const pDetails = input.closest('.product-group-details');
+                    const cDetails = input.closest('.category-details');
+
+                    if (pDetails) {
+                        prodTotals.set(pDetails, (prodTotals.get(pDetails) || 0) + lineTotal);
+                    }
+                    if (cDetails) {
+                        catTotals.set(cDetails, (catTotals.get(cDetails) || 0) + lineTotal);
                     }
                 }
             }
         });
 
         document.getElementById('total-pieces').textContent = totalPieces;
-        document.getElementById('header-total').textContent = `Total: $${grandTotal.toFixed(2)}`;
+        document.getElementById('header-total').textContent = `Total: $${grandTotal.toFixed(2)} `;
+
+        // Update UI Spans
+        for (const [el, total] of catTotals.entries()) {
+            const span = el.querySelector('.category-summary .cat-subtotal');
+            if (span && total > 0) {
+                span.textContent = `$${total.toFixed(2)} `;
+                span.style.display = 'block';
+            }
+        }
+
+        for (const [el, total] of prodTotals.entries()) {
+            // prodSummary is the first child summary
+            const summary = el.querySelector('summary');
+            if (summary) {
+                const span = summary.querySelector('.prod-subtotal');
+                if (span && total > 0) {
+                    span.textContent = `$${total.toFixed(2)}`;
+                    span.style.display = 'block';
+                }
+            }
+        }
     }
 
     /**
      * Submit Order
      */
-    function submitOrder() {
+    /**
+     * REVIEW & SUBMIT LOGIC
+     */
+    let lastItems = []; // Store for Summary and Submission
+
+    function gatherItems() {
         const inputs = document.querySelectorAll('.qty-input');
         const itemsMap = {}; // Map sku to total qty
 
@@ -708,8 +870,8 @@
                 if (!itemsMap[sku]) itemsMap[sku] = 0;
 
                 if (input.dataset.type === 'case') {
-                    const perCase = parseInt(input.dataset.perCase) || 1;
-                    itemsMap[sku] += (val * perCase);
+                    // Do not multiply by perCase for the payload if the SKU is specific to the Case
+                    itemsMap[sku] += val;
                 } else {
                     itemsMap[sku] += val;
                 }
@@ -721,13 +883,47 @@
             quantity: itemsMap[sku] // Total units
         }));
 
+        return items;
+    }
+
+    function reviewOrder() {
+        const items = gatherItems();
+
         if (items.length === 0) {
             alert("Please add at least one item.");
             return;
         }
 
+        lastItems = items; // Save global state
+
+        // Generate HTML
+        const tableHtml = generateOrderSummaryHtml(items);
+        document.getElementById('review-summary-container').innerHTML = tableHtml;
+
+        // Populate Review Client Info
+        const cName = document.getElementById('client-name-input').value;
+        const cAddr = document.getElementById('client-address-input').value;
+        document.getElementById('review-client-info').innerHTML = `
+            <strong>Bill To:</strong><br>
+            ${cName}<br>
+            ${cAddr}
+        `;
+
+        // Switch Views
+        document.getElementById('order-form').classList.add('hidden');
+        document.getElementById('review-view').classList.remove('hidden');
+        window.scrollTo(0, 0);
+    }
+
+    function backToEdit() {
+        document.getElementById('review-view').classList.add('hidden');
+        document.getElementById('order-form').classList.remove('hidden');
+        window.scrollTo(0, 0);
+    }
+
+    function confirmOrder() {
         // Disable UI
-        const btn = document.getElementById('submit-btn');
+        const btn = document.getElementById('confirm-btn');
         btn.disabled = true;
         btn.textContent = "Submitting...";
 
@@ -741,7 +937,7 @@
             clientId: CLIENT_ID,
             clientName: document.getElementById('client-name-input').value,
             clientAddress: document.getElementById('client-address-input').value,
-            items: items,
+            items: lastItems,
             totalPieces: document.getElementById('total-pieces').textContent
         };
 
@@ -751,23 +947,84 @@
             .processOrder(payload);
     }
 
+    function generateOrderSummaryHtml(items) {
+        let tableHtml = `<table style="width:100%; border-collapse: collapse; font-size:12px;">`;
+        tableHtml += `<thead style="background:#f0f0f0; font-weight:bold;">
+                        <tr>
+                            <th style="padding:8px; border:1px solid #ddd;">Product</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Qty (Units)</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Line Total</th>
+                        </tr>
+                      </thead><tbody>`;
+
+        let grandTotal = 0;
+
+        // Enrich items with Product Details for display
+        items.forEach(item => {
+            const product = PRODUCT_CATALOG.find(p => p.sku === item.sku);
+            if (product) {
+                const name = product.name + (product.variation && product.variation !== "Standard" ? ` ${product.variation}` : "");
+
+                // Calculate Price
+                const price = Number(product.price) || 0;
+                const salePrice = Number(product.salePrice) || 0;
+                const catSetting = window.categorySettings && window.categorySettings[product.category];
+                const catSaleActive = catSetting ? catSetting.saleActive : false;
+                const isSale = catSaleActive && product.onSale && salePrice > 0;
+                const finalPrice = isSale ? salePrice : price;
+
+                const lineTotal = finalPrice * item.quantity;
+                grandTotal += lineTotal;
+
+                tableHtml += `<tr>
+                                <td style="padding:8px; border:1px solid #ddd;">${name}</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${lineTotal.toFixed(2)}</td>
+                              </tr>`;
+            } else {
+                tableHtml += `<tr>
+                                <td style="padding:8px; border:1px solid #ddd;">${item.sku}</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:right;">-</td>
+                              </tr>`;
+            }
+        });
+
+        tableHtml += `<tr style="font-weight:bold; background:#fafafa;">
+                        <td colspan="2" style="padding:8px; border:1px solid #ddd; text-align:right;">Total:</td>
+                        <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${grandTotal.toFixed(2)}</td>
+                      </tr>`;
+        tableHtml += `</tbody></table>`;
+        return tableHtml;
+    }
+
     function onOrderSuccess(response) {
-        document.getElementById('order-form').classList.add('hidden');
+        document.getElementById('review-view').classList.add('hidden'); // Hide Review
+        document.getElementById('order-form').classList.add('hidden'); // Ensure Form Hidden
         document.getElementById('success').classList.remove('hidden');
         document.getElementById('header-total').classList.add('hidden'); // Hide Subtotal
         document.getElementById('loading').classList.add('hidden'); // Hide Spinner
-        // PDF Link Removed by User Request
+
+        // Use the same summary generation for success page or just clone it
+        const summaryDiv = document.createElement('div');
+        summaryDiv.style.marginTop = "20px";
+        summaryDiv.style.textAlign = "left";
+
+        summaryDiv.innerHTML = `<h3 class="md3-title-medium" style="margin-bottom:10px;">Order Summary</h3>` + generateOrderSummaryHtml(lastItems);
+
+        const successEl = document.getElementById('success');
+        successEl.appendChild(summaryDiv);
     }
 
     function onFailure(error) {
         showError("Error: " + error.message);
-        const btn = document.getElementById('submit-btn');
+        const btn = document.getElementById('confirm-btn');
         if (btn) {
             btn.disabled = false;
-            btn.textContent = "Submit Order";
+            btn.textContent = "Confirm & Submit";
         }
-        // Restore Form visibility if appropriate, or stay on error
-        // document.getElementById('order-form').classList.remove('hidden');
+        // Restore Review visibility
+        document.getElementById('loading').classList.add('hidden');
     }
 
     function showError(msg) {
@@ -808,9 +1065,9 @@
     function groupProductsDynamically(products) {
         const groups = {};
         products.forEach(p => {
-            let base = p.name.replace(/\d+\s*(mg|g|ml|pk|pack|pcs)?/gi, "").trim();
-            base = base.replace(/[^a-zA-Z0-9]+$/, "").trim();
-            if (!base) base = p.name;
+            // User requested NO stripping of numbers. Use exact name.
+            let base = String(p.name).trim();
+            if (!base) base = "Unknown";
             if (!groups[base]) groups[base] = [];
             groups[base].push(p);
         });

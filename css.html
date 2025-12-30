@@ -138,11 +138,32 @@
         color: var(--md-sys-color-on-primary);
         border: none;
         border-radius: 100px;
-        padding: 10px 24px;
+        padding: 0 24px;
+        height: 48px;
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
         font-family: var(--md-ref-typeface-brand);
+        /* Shadow & Lift Effect */
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        /* Base shadow */
+        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s;
+    }
+
+    .md3-btn-filled:hover,
+    .md3-btn-filled:focus {
+        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.25);
+        /* Stronger shadow on hover */
+        transform: translateY(-2px);
+        /* Lift up */
+        outline: none;
+        /* Remove default focus outline */
+    }
+
+    .md3-btn-filled:active {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        transform: translateY(1px);
+        /* Press down effect */
     }
 
     .state-view {
@@ -325,11 +346,24 @@
         border: 1px solid #e0e0e0;
         margin-left: 8px;
         margin-right: 8px;
+        transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Hover Lift Effect */
+    .product-group-details:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15);
+        z-index: 25;
+        /* Ensure it floats above others when hovering */
     }
 
     .product-group-details[open] {
-        box-shadow: var(--md-sys-elevation-3);
+        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
+        /* Stronger shadow when open */
         margin-bottom: 16px;
+        transform: translateY(-2px);
+        /* Keep lifted when open */
+        z-index: 21;
     }
 
     .product-group-details>summary {
@@ -343,7 +377,7 @@
         border-radius: 8px;
         background-color: var(--md-sys-color-surface);
         /* Clean White/Surface when closed */
-        transition: background-color 0.2s ease;
+        transition: background-color 0.2s ease, box-shadow 0.2s ease;
 
         /* STICKY WATERFALL HEADER RESTORED */
         position: sticky;
@@ -353,6 +387,16 @@
         /* Higher than content */
     }
 
+    /* Category Header Lift */
+    .category-details>summary {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .category-details>summary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
     .product-group-details[open]>summary {
         /* Force dynamic color when open */
         background-color: var(--category-color, #e0e0e0) !important;
@@ -360,8 +404,8 @@
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
         border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        /* Ensure shadow on sticky */
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        /* Ensure prominent shadow on sticky to look "raised" over scrolling content */
+        box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
     /* MISSING HEADER LAYOUT FIXED */
@@ -515,5 +559,12 @@
     .matrix-name-col {
         width: 150px;
         flex: none;
+    }
+
+    /* ANIMATION WRAPPER */
+    /* Must have overflow:hidden to animate height */
+    .details-animation-wrapper {
+        overflow: hidden;
+        transition: height 0.35s ease-out;
     }
 </style>

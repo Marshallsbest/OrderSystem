@@ -49,10 +49,12 @@ function getProductCatalog() {
         else if (header.includes('on sale')) map.onSale = i;
     });
 
-    // 3. Get Data
-    const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    // 3. Get Data & Font Colors
+    const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
+    const data = range.getValues();
+    const fontColors = range.getFontColors();
 
-    return data.map(row => {
+    return data.map((row, rIndex) => {
         // Optional Status Check? User didn't specify, but let's strict check if 'Inactive' exists
         const status = map.status > -1 ? String(row[map.status]).toLowerCase() : "active";
         if (status === 'inactive' || status === 'archived') return null;
@@ -69,7 +71,8 @@ function getProductCatalog() {
             onSale: map.onSale > -1 ? Boolean(row[map.onSale]) : false,
             description: map.description > -1 ? row[map.description] : "",
             image: map.image > -1 ? row[map.image] : "",
-            backgroundColor: map.backgroundColor > -1 ? row[map.backgroundColor] : ""
+            backgroundColor: map.backgroundColor > -1 ? row[map.backgroundColor] : "",
+            textColor: map.backgroundColor > -1 ? fontColors[rIndex][map.backgroundColor] : ""
         };
     }).filter(p => p && p.sku && p.name);
 }
