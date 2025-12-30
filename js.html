@@ -33,8 +33,8 @@
         var g = parseInt(hexcolor.substr(2, 2), 16);
         var b = parseInt(hexcolor.substr(4, 2), 16);
         var yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-        // User prefers white text on pink (#ed7bd0 = ~166 YIQ). Raising threshold to 190 to force white.
-        return (yiq >= 190) ? 'black' : 'white';
+        // Standard threshold 128 ensures Black text on light colors
+        return (yiq >= 128) ? 'black' : 'white';
     }
 
     /**
@@ -304,8 +304,9 @@
                         return numA - numB;
                     });
                     colDefs = allNames.map(name => {
-                        const regex = new RegExp(escapeRegex(baseName), "i");
+                        const regex = new RegExp("^" + escapeRegex(baseName), "i");
                         let label = name.replace(regex, "").trim();
+                        label = label.replace(/^[\s\-\&]+/, "").trim(); // Clean prefix
                         if (!label) label = "Std";
                         const p = group.find(prod => prod.name === name);
                         const price = p ? Number(p.price).toFixed(2) : "0.00";
