@@ -404,8 +404,15 @@
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
         border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        margin-bottom: 0;
+        /* Remove gap between header and content */
         /* Ensure prominent shadow on sticky to look "raised" over scrolling content */
         box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Hide Quantity Label when collapsed */
+    .product-group-details:not([open]) .qty-header-label {
+        display: none;
     }
 
     /* MISSING HEADER LAYOUT FIXED */

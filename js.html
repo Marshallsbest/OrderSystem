@@ -338,9 +338,15 @@
                         }
                     }
 
-                    headerColsHtml += `<div class="col-data"><span>Qty</span></div>`;
-                    headerColsHtml += `<div class="col-data"><span>Price</span></div>`;
-                    if (showCase) headerColsHtml += `<div class="col-data"><span>${caseHeaderLabel}</span></div>`;
+                    headerColsHtml += `<div class="col-data"><span class="qty-header-label">Qty</span></div>`;
+
+                    // Display actual price if consistent, or range? user asked for "the price"
+                    // We'll use the leader's price. If on sale, show sale price? Let's check logic.
+                    const leaderP = group[0];
+                    const leaderPriceVal = Number(leaderP.salePrice) > 0 ? Number(leaderP.salePrice) : Number(leaderP.price);
+
+                    headerColsHtml += `<div class="col-data"><span class="price-header-label">$${leaderPriceVal.toFixed(2)}</span></div>`;
+                    if (showCase) headerColsHtml += `<div class="col-data"><span class="case-header-label">${caseHeaderLabel}</span></div>`;
                 }
 
                 // Determine Sticky
@@ -352,7 +358,8 @@
                 // ASSIGN DYNAMIC CATEGORY CLASS
                 const catClass = toCssClass(cat);
                 prodDetails.className = `product-group-details mb-3 ${catClass}`;
-                prodDetails.ontoggle = (e) => handleToggle(e, prodDetails);
+                // REMOVED handleToggle causing ReferenceError - relying on initAccordionAnimation
+                // prodDetails.ontoggle = (e) => handleToggle(e, prodDetails);
 
                 const prodSummary = document.createElement('summary');
                 prodSummary.className = "product-group-header";
@@ -394,9 +401,12 @@
                         <!-- Subtotal Span -->
                         <span class="prod-subtotal" style="font-size:0.9em; font-weight:bold; margin-right: 12px; display:none;">$0.00</span>
                         
-                        <div class="header-expanded-content">
+                        <!-- Header Cols for Alignment when open -->
+                        <div class="header-expanded-content" style="display:flex; flex:1; justify-content: flex-end;">
                             ${headerColsHtml}
                         </div>
+
+                         <span class="material-symbols-outlined expand-icon">expand_more</span>
                     </div>`;
 
                 prodDetails.appendChild(prodSummary);
@@ -468,14 +478,19 @@
                 wrapper.style.height = '0px';
 
                 // 3. Remove open attribute after transition
-                // Use a one-time listener
-                wrapper.addEventListener('transitionend', function onEnd() {
+                // Use a one-time listener OR timeout safety
+                const onEnd = function () {
                     wrapper.removeEventListener('transitionend', onEnd);
+                    clearTimeout(safetyTimer);
                     if (wrapper.style.height === '0px') { // Check we didn't interrupt
                         details.open = false;
                         wrapper.style.height = ''; // Clean up
                     }
-                });
+                };
+
+                wrapper.addEventListener('transitionend', onEnd);
+                // Safety fallback for mobile if transitionend doesn't fire
+                const safetyTimer = setTimeout(onEnd, 400);
 
             } else {
                 // OPEN ANIMATION
@@ -497,14 +512,19 @@
                 wrapper.style.height = targetHeight + 'px';
 
                 // 5. Clean up after transition
-                wrapper.addEventListener('transitionend', function onEnd() {
+                const onEnd = function () {
                     wrapper.removeEventListener('transitionend', onEnd);
+                    clearTimeout(safetyTimer);
                     if (wrapper.style.height !== '0px') {
                         wrapper.style.height = 'auto'; // allow dynamic content growth
                         // RESTORE STICKY: Allow overflow so sticky descendants work
                         wrapper.style.overflow = 'visible';
                     }
-                });
+                };
+
+                wrapper.addEventListener('transitionend', onEnd);
+                // Safety fallback for mobile if transitionend doesn't fire
+                const safetyTimer = setTimeout(onEnd, 400);
             }
         });
     }
@@ -863,20 +883,20 @@
         const itemsMap = {}; // Map sku to total qty
 
         // Aggregate quantities by SKU
-        inputs.forEach(input => {
+        // Classic FOR loop for maximum compatibility
+        for (let i = 0; i < inputs.length; i++) {
+            const input = inputs[i];
             const val = parseInt(input.value) || 0;
             if (val > 0) {
-                const sku = input.dataset.sku;
-                if (!itemsMap[sku]) itemsMap[sku] = 0;
+                const sku = input.getAttribute('data-sku');
+                const type = input.getAttribute('data-type');
 
-                if (input.dataset.type === 'case') {
-                    // Do not multiply by perCase for the payload if the SKU is specific to the Case
-                    itemsMap[sku] += val;
-                } else {
+                if (sku) {
+                    if (!itemsMap[sku]) itemsMap[sku] = 0;
                     itemsMap[sku] += val;
                 }
             }
-        });
+        }
 
         const items = Object.keys(itemsMap).map(sku => ({
             sku: sku,
@@ -887,32 +907,57 @@
     }
 
     function reviewOrder() {
-        const items = gatherItems();
+        let stage = "Start";
+        try {
+            stage = "Gathering Items";
+            const items = gatherItems();
 
-        if (items.length === 0) {
-            alert("Please add at least one item.");
-            return;
+            if (items.length === 0) {
+                alert("Please add at least one item.");
+                return;
+            }
+
+            stage = "Saving Global";
+            lastItems = items; // Save global state
+
+            // Generate HTML
+            stage = "Generating Summary";
+            const tableHtml = generateOrderSummaryHtml(items);
+
+            stage = "Rendering Summary";
+            const summaryContainer = document.getElementById('review-summary-container');
+            if (summaryContainer) summaryContainer.innerHTML = tableHtml;
+
+            // Populate Review Client Info
+            stage = "Getting Client Info";
+            const nameInput = document.getElementById('client-name-input');
+            const addrInput = document.getElementById('client-address-input');
+            const cName = nameInput ? nameInput.value : "";
+            const cAddr = addrInput ? addrInput.value : "";
+
+            stage = "Rendering Client Info";
+            const revInfo = document.getElementById('review-client-info');
+            if (revInfo) {
+                revInfo.innerHTML = `
+                <strong>Bill To:</strong><br>
+                ${cName}<br>
+                ${cAddr}
+                `;
+            }
+
+            // Switch Views
+            stage = "Switching Views";
+            const formEl = document.getElementById('order-form');
+            const reviewEl = document.getElementById('review-view');
+            if (formEl) formEl.classList.add('hidden');
+            if (reviewEl) reviewEl.classList.remove('hidden');
+
+            if (window.scrollTo) window.scrollTo(0, 0);
+
+        } catch (e) {
+            alert(`Error in Review (${stage}): ` + e.message);
+            console.error(e);
         }
-
-        lastItems = items; // Save global state
-
-        // Generate HTML
-        const tableHtml = generateOrderSummaryHtml(items);
-        document.getElementById('review-summary-container').innerHTML = tableHtml;
-
-        // Populate Review Client Info
-        const cName = document.getElementById('client-name-input').value;
-        const cAddr = document.getElementById('client-address-input').value;
-        document.getElementById('review-client-info').innerHTML = `
-            <strong>Bill To:</strong><br>
-            ${cName}<br>
-            ${cAddr}
-        `;
-
-        // Switch Views
-        document.getElementById('order-form').classList.add('hidden');
-        document.getElementById('review-view').classList.remove('hidden');
-        window.scrollTo(0, 0);
     }
 
     function backToEdit() {
@@ -1039,7 +1084,7 @@
      * Setup IntersectionObserver to detect when Product Headers stick
      */
     function setupStickyObservers() {
-        const summaries = document.querySelectorAll('.product-group-details > summary:not(.no-sticky)');
+        // Sticky logic depends on scrolling, fallback to classic loops
         window.removeEventListener('scroll', checkStickyHeaders);
         window.addEventListener('scroll', checkStickyHeaders);
         checkStickyHeaders(); // Initial check
@@ -1049,14 +1094,15 @@
         const summaries = document.querySelectorAll('.product-group-details > summary:not(.no-sticky)');
         const STICKY_TOP = 60; // Top offset
 
-        summaries.forEach(summary => {
+        for (let i = 0; i < summaries.length; i++) {
+            const summary = summaries[i];
             const rect = summary.getBoundingClientRect();
             if (rect.top <= STICKY_TOP + 1) {
                 summary.classList.add('is-pinned');
             } else {
                 summary.classList.remove('is-pinned');
             }
-        });
+        }
     }
 
     /**
@@ -1065,9 +1111,13 @@
     function groupProductsDynamically(products) {
         const groups = {};
         products.forEach(p => {
-            // User requested NO stripping of numbers. Use exact name.
-            let base = String(p.name).trim();
-            if (!base) base = "Unknown";
+            // Restore smart grouping: Strip trailing numbers, units (mg, g, ml), and 'pack'
+            // This ensures "Soda Squares 100mg" and "Soda Squares 200mg" group under "Soda Squares"
+            let base = String(p.name).replace(/\s*(\d+(\.\d+)?\s*(mg|g|ml|oz|lb|kg|pcs|pack|pk)|#\d+|\d+)$/i, "").trim();
+            // Also strip common " - Case" or "Case of" suffixes if present, though usually handled by separate field
+            base = base.replace(/\s*-\s*Case$/i, "").trim();
+
+            if (!base) base = p.name; // Fallback to full name if stripped to empty
             if (!groups[base]) groups[base] = [];
             groups[base].push(p);
         });
