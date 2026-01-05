@@ -300,28 +300,41 @@
 
             sortedGroupNames.forEach(baseName => {
                 const group = groups[baseName];
-                const isMatrix = checkMatrixEligibility(group);
+                const isMatrix = checkMatrixEligibility(group, baseName);
 
                 // --- BUILD DYNAMIC HEADER COLUMNS ---
                 let headerColsHtml = "";
                 let colDefs = [];
 
                 if (isMatrix) {
-                    // ... (Matrix logic unchanged) ...
-                    const allNames = [...new Set(group.map(p => p.name))].sort((a, b) => {
-                        const numA = parseInt(a.replace(/\D/g, '')) || 0;
-                        const numB = parseInt(b.replace(/\D/g, '')) || 0;
-                        return numA - numB;
-                    });
-                    colDefs = allNames.map(name => {
-                        const regex = new RegExp("^" + escapeRegex(baseName), "i");
-                        let label = name.replace(regex, "").trim();
-                        label = label.replace(/^[\s\-\&]+/, "").trim(); // Clean prefix
-                        if (!label) label = "Std";
-                        const p = group.find(prod => prod.name === name);
-                        const price = p ? Number(p.price).toFixed(2) : "0.00";
-                        return { label: label, price: price, name: name };
-                    });
+                    const hasVar2 = group.some(p => p.variation2);
+
+                    if (hasVar2) {
+                        // Logic for Variation 2 Columns
+                        const uniqueVar2 = [...new Set(group.map(p => p.variation2).filter(v => v))].sort();
+                        colDefs = uniqueVar2.map(v2Name => {
+                            // Find a representative price? 
+                            // Prices might vary by Var2, so we just pass the label. 
+                            // The cell render function will look up the specific SKU price using Var1 + Var2.
+                            return { label: v2Name || "Std", price: "", name: v2Name, isVar2: true };
+                        });
+                    } else {
+                        // Classic Logic (Name-based Columns)
+                        const allNames = [...new Set(group.map(p => p.name))].sort((a, b) => {
+                            const numA = parseInt(a.replace(/\D/g, '')) || 0;
+                            const numB = parseInt(b.replace(/\D/g, '')) || 0;
+                            return numA - numB;
+                        });
+                        colDefs = allNames.map(name => {
+                            const regex = new RegExp("^" + escapeRegex(baseName), "i");
+                            let label = name.replace(regex, "").trim();
+                            label = label.replace(/^[\s\-\&]+/, "").trim(); // Clean prefix
+                            if (!label) label = "Std";
+                            const p = group.find(prod => prod.name === name);
+                            const price = p ? Number(p.price).toFixed(2) : "0.00";
+                            return { label: label, price: price, name: name, isVar2: false };
+                        });
+                    }
                 } else {
                     // Standard / Compact Logic
                     // Check for Case existence and common units
@@ -404,9 +417,6 @@
                         <!-- Header Cols for Alignment when open -->
                         <div class="header-expanded-content" style="display:flex; flex:1; justify-content: flex-end;">
                             ${headerColsHtml}
-                        </div>
-
-                         <span class="material-symbols-outlined expand-icon">expand_more</span>
                     </div>`;
 
                 prodDetails.appendChild(prodSummary);
@@ -415,7 +425,11 @@
                 prodContent.className = "product-content details-animation-wrapper"; // Added wrapper class
 
                 if (isMatrix) {
-                    prodContent.innerHTML = renderMatrixGroupFlex(baseName, group, colDefs);
+                    // Pass dynamic colors from the group representative
+                    const sample = group[0];
+                    const matBg = sample.backgroundColor || "var(--md-sys-color-primary)";
+                    const matTx = sample.textColor || "var(--md-sys-color-on-primary)";
+                    prodContent.innerHTML = renderMatrixGroupFlex(baseName, group, colDefs, matBg, matTx);
                 } else {
                     prodContent.innerHTML = renderCompactTableFlex(baseName, group);
                 }
@@ -583,15 +597,20 @@
 
     // --- FLEX RENDER FUNCTIONS ---
 
-    function renderMatrixGroupFlex(title, products, colDefs) {
+    function renderMatrixGroupFlex(title, products, colDefs, bgColor, txtColor) {
         const rowLabels = [...new Set(products.map(p => p.variation || "Standard"))].sort();
+
+        // Default colors if missing
+        const headerBg = bgColor || "var(--md-sys-color-primary)";
+        const headerTx = txtColor || "var(--md-sys-color-on-primary)";
 
         // Add 'matrix-scroll-view' class for CSS targeting
         let html = `<div class="table-container matrix-scroll-view">`;
 
-        // 1. Internal Header Row (Scrolls with content, Sticks to top)
-        html += `<div class="grid-header-row matrix-header-row" style="display:flex; width:max-content; min-width:100%;">`;
-        html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:inherit; z-index:2; border-right:1px solid rgba(0,0,0,0.1);">${title}</div>`;
+        // 1. Internal Header Row
+        // Apply dynamic color here
+        html += `<div class="grid-header-row matrix-header-row" style="display:flex; width:max-content; min-width:100%; background-color:${headerBg}; color:${headerTx};">`;
+        html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:inherit; color:inherit; z-index:2; border-right:1px solid rgba(0,0,0,0.1); font-weight:bold;">${title}</div>`;
         colDefs.forEach(col => {
             html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">
                         <span style="font-size:13px; font-weight:bold; display:block; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%;" title="${col.label}">${col.label}</span>
@@ -600,51 +619,43 @@
         html += `</div>`;
 
         // 2. Data Rows
-        rowLabels.forEach(rowName => {
-            html += `<div class="grid-data-row" style="display:flex; width:max-content; min-width:100%;">`;
-            html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid #eee;">${rowName}</div>`;
+        rowLabels.forEach(rowLabel => {
+            html += `<div class="grid-row matrix-row" style="display:flex; width:max-content; min-width:100%;">`;
+            html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid rgba(0,0,0,0.1); padding:8px 4px; display:flex; align-items:center;">
+                        <span style="font-size:14px; font-weight:500;">${rowLabel}</span>
+                     </div>`;
 
             colDefs.forEach(col => {
-                const product = products.find(p =>
-                    (p.variation === rowName || (!p.variation && rowName === "Standard")) &&
-                    p.name === col.name
-                );
-
-                html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">`;
-                if (product) {
-                    // Logic for Sales
-                    // Check Category Sale Active Status
-                    const catSetting = window.categorySettings && window.categorySettings[product.category];
-                    const catSaleActive = catSetting ? catSetting.saleActive : false;
-
-                    const isSale = catSaleActive && product.onSale && (product.salePrice > 0);
-
-                    html += `
-                        <input type="number"
-                               inputmode="numeric"
-                               pattern="[0-9]*"
-                               min="0"
-                               data-sku="${product.sku}"
-                               data-type="unit"
-                               data-category="${product.category}"
-                               data-group="${escapeRegex(title)}"
-                               class="table-input qty-input"
-                               placeholder="0">`;
-
-                    // Add Price hint if Sale
-                    if (isSale) {
-                        html += `<div style="font-size:10px; color:red; font-weight:bold;">$${Number(product.salePrice).toFixed(2)}</div>`;
-                    }
-
+                let prod;
+                if (col.isVar2) {
+                    // Normalize to string for safe comparison, as Sheet can return numbers
+                    prod = products.find(p => String(p.variation) === String(rowLabel) && String(p.variation2) === String(col.name));
                 } else {
-                    html += `- `;
+                    prod = products.find(p => (p.variation || "Standard") === rowLabel && p.name === col.name);
                 }
+
+                html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:8px 4px;">`;
+
+                if (prod) {
+                    // Matches "Barbie Bitch Sticks" style: Input Box then Price below
+                    const price = Number(prod.price).toFixed(2);
+
+                    html += `<input type="number" class="qty-input matrix-input" id="qty-${prod.sku}" value="0" min="0" 
+                                   data-sku="${prod.sku}" data-price="${prod.price}" 
+                                   data-name="${prod.name} - ${prod.variation} ${prod.variation2 ? '(' + prod.variation2 + ')' : ''}" 
+                                   data-units="${prod.unitsPerCase}"
+                                   onchange="updateTotal()"
+                                   style="width: 100%; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 8px; font-size: 16px;">
+                             <div style="font-size:11px; color:#666; margin-top:4px;">$${price}</div>`;
+                } else {
+                    html += `<div style="background:#f9f9f9; width:100%; height:100%;"></div>`;
+                }
+
                 html += `</div>`;
             });
             html += `</div>`;
         });
-
-        html += `</div>`;
+        html += `</div>`; // End container
         return html;
     }
 
@@ -1127,7 +1138,21 @@
     /**
      * Check if a group should be displayed as a 2D Matrix
      */
-    function checkMatrixEligibility(products) {
+    function checkMatrixEligibility(products, groupName) {
+        // Robust check for Var2 content
+        const hasVar2 = products.some(p => p.variation2 && String(p.variation2).trim() !== "" && String(p.variation2).trim().toLowerCase() !== "undefined");
+
+        // DEBUG: Temporary alert for specific problem group
+        if ((groupName === "Buzzed Cola" || groupName === "Soda Squares") && !window.hasAlertedDebug) {
+            // Find first product with Var2 to see what it looks like
+            const sample = products.find(p => p.variation2) || products[0];
+            // alert(`DEBUG ${groupName}: HasVar2=${hasVar2}. Sample Var2="${sample.variation2}". Name="${sample.name}"`);
+            // window.hasAlertedDebug = true; // Commented out to avoid spam, uncomment if needed
+        }
+
+        if (hasVar2) return true;
+
+        // Old Logic Fallback
         const byVar = {};
         products.forEach(p => {
             const v = p.variation || "Standard";
@@ -1135,16 +1160,12 @@
             byVar[v].push(p);
         });
 
-        // We only want Matrix layout if we have multiple NAMES (Columns) for the variations.
-        // e.g. "Flavor X" comes in "100mg" and "200mg" (Different p.name).
-        // If "Flavor X" comes in "Single" and "Case" (Same p.name, different Qty), 
-        // that should NOT trigger Matrix, but go to Compact view to show side-by-side inputs.
         const hasMultipleCols = Object.values(byVar).some(arr => {
             const uniqueNames = new Set(arr.map(p => p.name));
             return uniqueNames.size > 1;
         });
 
-        const hasMultipleVars = Object.keys(byVar).length > 1;
-        return hasMultipleCols && hasMultipleVars;
+        return hasMultipleCols && (Object.keys(byVar).length > 1);
     }
 </script>
+```

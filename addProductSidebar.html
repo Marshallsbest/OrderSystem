@@ -231,52 +231,276 @@
 <body>
     <h3>Add New Product</h3>
 
-    <div class="md3-input-wrapper">
-        <input type="text" id="baseName" placeholder=" " required>
-        <label>Base Product Name</label>
+    <!-- Mode Switch -->
+    <div style="margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="new" checked onchange="toggleMode()">
+            <span>New Product</span>
+        </label>
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="existing" onchange="toggleMode()">
+            <span>Add Variation</span>
+        </label>
+        <label class="mode-btn delete-mode">
+            <input type="radio" name="mode" value="delete" onchange="toggleMode()">
+            <span>Archive</span>
+        </label>
     </div>
 
-    <div class="md3-input-wrapper">
-        <input type="text" id="category" placeholder=" " required>
-        <label>Category</label>
+    <!-- Mode: Select Existing (For Add or Delete) -->
+    <div id="existingSelectWrapper" class="md3-input-wrapper" style="display: none;">
+        <select id="existingProduct" onchange="onExistingProductChange()"
+            style="width: 100%; padding: 12px 16px; border: 1px solid var(--md-sys-color-outline); border-radius: 4px; background: transparent; font-family: inherit; font-size: 16px;">
+            <option value="">Select a Base Product...</option>
+        </select>
+        <label style="background-color: var(--md-sys-color-surface);">Select Base Product</label>
     </div>
 
-    <div class="md3-input-wrapper">
-        <textarea id="description" rows="2" placeholder=" "></textarea>
-        <label>Description (Optional)</label>
+    <!-- Mode: Add (Form) -->
+    <div id="addFormSection">
+        <div class="md3-input-wrapper">
+            <input type="text" id="baseName" placeholder=" " required>
+            <label>Base Product Name</label>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <input type="text" id="category" placeholder=" " required>
+            <label>Category</label>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <textarea id="description" rows="2" placeholder=" "></textarea>
+            <label>Description (Optional)</label>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <input type="text" id="imageUrl" placeholder=" ">
+            <label>Image URL (Optional)</label>
+        </div>
+
+        <div id="variationList">
+            <!-- Rows will go here -->
+        </div>
+
+        <button class="btn btn-tonal" onclick="addVariationRow()">
+            <span class="material-symbols-outlined" style="margin-right:8px;">add</span>
+            Add Variation
+        </button>
+
+        <button class="btn btn-filled" onclick="submitForm()" id="submitBtn">
+            Submit Products
+        </button>
     </div>
 
-    <div class="md3-input-wrapper">
-        <input type="text" id="imageUrl" placeholder=" ">
-        <label>Image URL (Optional)</label>
+    <!-- Mode: Delete (List) -->
+    <div id="deleteSection" style="display: none;">
+        <p style="font-size:13px; color:#666; margin-bottom:12px;">Select variations to move to "DELETED_PRODUCTS":</p>
+        <div id="deleteList"
+            style="max-height: 300px; overflow-y:auto; border:1px solid #eee; padding:8px; border-radius:8px;">
+            <div style="padding:16px; text-align:center; color:#999;">Select a Base Product above first.</div>
+        </div>
+        <button class="btn btn-filled" style="background-color:#B00020; margin-top:16px;" onclick="submitArchive()"
+            id="archiveBtn">
+            Archive Selected
+        </button>
     </div>
-
-    <div id="variationList">
-        <!-- Rows will go here -->
-    </div>
-
-    <button class="btn btn-tonal" onclick="addVariationRow()">
-        <span class="material-symbols-outlined" style="margin-right:8px;">add</span>
-        Add Variation
-    </button>
-
-    <button class="btn btn-filled" onclick="submitForm()" id="submitBtn">
-        Submit Products
-    </button>
 
     <div id="msg" class="error"></div>
 
+    <style>
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--md-sys-color-outline);
+            font-size: 13px;
+            font-weight: 500;
+            color: #555;
+            transition: all 0.2s;
+        }
+
+        .mode-btn input {
+            display: none;
+        }
+
+        .mode-btn:has(input:checked) {
+            background-color: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            border-color: var(--md-sys-color-primary);
+        }
+
+        .mode-btn.delete-mode:has(input:checked) {
+            background-color: #ffebee;
+            color: #b71c1c;
+            border-color: #b71c1c;
+        }
+    </style>
+
     <script>
         let existingSkus = [];
+        let baseProducts = [];
+        let allCatalog = []; // Full Catalog for filtering variations
 
-        // Load SKUs on start
+        // Load SKUs and Base Products on start
         window.onload = function () {
-            google.script.run.withSuccessHandler(skus => {
-                existingSkus = skus;
-            }).getExistingSkus();
+            // Load SKUs & Full Catalog
+            // We need a new backend function to get full catalog for Sidebar, 
+            // but for now we can infer from existingSkus? No, we need names.
+            // Let's modify getExistingBaseProducts to return everything or add a new call.
+            // Actually getExistingBaseProducts uses getProductCatalog which has everything.
+            // Let's just ask for full catalog.
 
-            addVariationRow(); // Add first row default
+            google.script.run.withSuccessHandler(products => {
+                allCatalog = products; // Store full list
+                existingSkus = products.map(p => p.sku); // Extract SKUs
+
+                // Extract Unique Base (Client Side Logic now to save calls)
+                const map = new Map();
+                products.forEach(p => {
+                    if (!map.has(p.name)) {
+                        map.set(p.name, p);
+                    }
+                });
+                baseProducts = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+                // Populate Dropdown
+                const select = document.getElementById('existingProduct');
+                baseProducts.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.name;
+                    opt.textContent = p.name;
+                    select.appendChild(opt);
+                });
+            }).getProductCatalog(); // We expose this in Code.gs!
+
+            addVariationRow();
         };
+
+        function toggleMode() {
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            const selectWrapper = document.getElementById('existingSelectWrapper');
+            const addForm = document.getElementById('addFormSection');
+            const deleteSection = document.getElementById('deleteSection');
+            const baseNameInput = document.getElementById('baseName');
+
+            // Reset
+            document.getElementById('msg').textContent = "";
+
+            if (mode === 'new') {
+                selectWrapper.style.display = 'none';
+                addForm.style.display = 'block';
+                deleteSection.style.display = 'none';
+
+                baseNameInput.readOnly = false;
+                baseNameInput.style.backgroundColor = "transparent";
+                baseNameInput.value = "";
+                document.getElementById('category').value = "";
+                document.getElementById('description').value = "";
+                document.getElementById('imageUrl').value = "";
+
+            } else if (mode === 'existing') {
+                selectWrapper.style.display = 'block';
+                addForm.style.display = 'block';
+                deleteSection.style.display = 'none';
+
+                baseNameInput.readOnly = true;
+                baseNameInput.style.backgroundColor = "#f0f0f0";
+                onExistingProductChange(); // Re-populate if selected
+
+            } else if (mode === 'delete') {
+                selectWrapper.style.display = 'block';
+                addForm.style.display = 'none';
+                deleteSection.style.display = 'block';
+                onExistingProductChange(); // Populate list
+            }
+        }
+
+        function onExistingProductChange() {
+            const name = document.getElementById('existingProduct').value;
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+
+            if (!name) {
+                if (mode === 'delete') document.getElementById('deleteList').innerHTML = '<div style="padding:16px; text-align:center; color:#999;">Select a Base Product above.</div>';
+                return;
+            }
+
+            // Populate Info for Add Mode
+            if (mode === 'existing') {
+                const product = baseProducts.find(p => p.name === name);
+                if (product) {
+                    document.getElementById('baseName').value = product.name;
+                    document.getElementById('category').value = product.category;
+                    document.getElementById('description').value = product.description;
+                    document.getElementById('imageUrl').value = product.image;
+                }
+            }
+
+            // Populate List for Delete Mode
+            if (mode === 'delete') {
+                const vars = allCatalog.filter(p => p.name === name);
+                const list = document.getElementById('deleteList');
+                list.innerHTML = "";
+
+                if (vars.length === 0) {
+                    list.innerHTML = "No variations found.";
+                    return;
+                }
+
+                vars.forEach(p => {
+                    const label = document.createElement('label');
+                    label.style = "display:flex; align-items:center; padding:8px; border-bottom:1px solid #eee; cursor:pointer;";
+                    label.innerHTML = `
+                        <input type="checkbox" class="del-check" value="${p.sku}" style="margin-right:12px;">
+                        <div>
+                            <div style="font-weight:500; font-size:14px;">${p.variation || "Standard"} ${p.variation2 ? " / " + p.variation2 : ""}</div>
+                            <div style="font-size:12px; color:#666;">SKU: ${p.sku} | $${p.price}</div>
+                        </div>
+                    `;
+                    list.appendChild(label);
+                });
+            }
+        }
+
+        function submitArchive() {
+            const checks = document.querySelectorAll('.del-check:checked');
+            if (checks.length === 0) {
+                document.getElementById('msg').textContent = "Select items to archive first.";
+                return;
+            }
+
+            if (!confirm("Are you sure you want to archive " + checks.length + " items?")) return;
+
+            const skus = Array.from(checks).map(c => c.value);
+            const btn = document.getElementById('archiveBtn');
+            const msg = document.getElementById('msg');
+
+            btn.disabled = true;
+            btn.textContent = "Archiving...";
+
+            google.script.run
+                .withSuccessHandler(res => {
+                    btn.disabled = false;
+                    btn.textContent = "Archive Selected";
+                    if (res.success) {
+                        msg.className = "success";
+                        msg.textContent = "Archived " + res.count + " items.";
+                        // Refresh data
+                        // Ideally re-fetch catalog, but quick fix: remove from local Arrays
+                        allCatalog = allCatalog.filter(p => !skus.includes(p.sku));
+                        // Re-render
+                        onExistingProductChange();
+                    } else {
+                        msg.textContent = "Error: " + res.message;
+                    }
+                })
+                .withFailureHandler(e => {
+                    btn.disabled = false;
+                    msg.textContent = "Sys Error: " + e.message;
+                })
+                .archiveProducts(skus);
+        }
 
         function addVariationRow() {
             const div = document.createElement('div');
@@ -289,11 +513,16 @@
                     </button>
                 </div>
                 <div class="variation-grid">
-                    <div class="compact-input"><input type="text" class="var-name" placeholder="Name (e.g. Red)"></div>
-                    <div class="compact-input"><input type="text" class="var-ref" placeholder="Ref ID"></div>
+                    <div class="compact-input"><input type="text" class="var-name" placeholder="Var 1 (e.g. Red/100mg)"></div>
+                    <div class="compact-input"><input type="text" class="var-name2" placeholder="Var 2 (Optional)"></div>
+                    
+                    <div class="compact-input"><input type="text" class="var-ref" placeholder="Ref Char"></div>
+                    <div class="compact-input"><input type="text" class="var-color" placeholder="Colour (Hex/Name)"></div>
+
                     <div class="compact-input"><input type="text" class="var-sku" placeholder="SKU" oninput="this.value = this.value.toUpperCase()"></div>
                     <div class="compact-input"><input type="number" class="var-price" placeholder="Price ($)" step="0.01"></div>
-                    <div class="compact-input" style="grid-column: span 2;"><input type="number" class="var-units" placeholder="Units per Case" value="1"></div>
+                    
+                    <div class="compact-input" style="grid-column: span 2;"><input type="number" class="var-units" placeholder="Units per Case (Default 1)" value="1"></div>
                 </div>
             `;
             document.getElementById('variationList').appendChild(div);
@@ -323,13 +552,15 @@
 
             rows.forEach(row => {
                 const vName = row.querySelector('.var-name').value.trim();
+                const vName2 = row.querySelector('.var-name2').value.trim(); // New
                 const vRef = row.querySelector('.var-ref').value.trim();
+                const vColor = row.querySelector('.var-color').value.trim(); // New
                 const sku = row.querySelector('.var-sku').value.trim();
                 const price = row.querySelector('.var-price').value.trim();
                 const units = row.querySelector('.var-units').value.trim();
 
                 if (!vName || !sku || !price) {
-                    msg.textContent = "Name, SKU, and Price are required for all variations.";
+                    msg.textContent = "Variation 1, SKU, and Price are required for all variations.";
                     hasError = true;
                     return;
                 }
@@ -346,12 +577,14 @@
                     name: baseName,
                     category: category,
                     variation: vName,
+                    variation2: vName2,
                     ref: vRef,
                     sku: sku,
                     price: price,
                     unitsPerCase: units,
                     description: desc,
-                    image: img
+                    image: img,
+                    backgroundColor: vColor
                 });
             });
 

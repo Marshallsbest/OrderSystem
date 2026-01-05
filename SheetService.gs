@@ -11,7 +11,8 @@ const SHEET_NAMES = {
     ORDER_PLACING: "ORDER_PLACING",
     CLIENT_DATA: "CLIENT DATA",
     PRODUCTS: "PRODUCTS",
-    ORDER_DATA: "ORDER_DATA" // New Staging Sheet
+    ORDER_DATA: "ORDER_DATA", // New Staging Sheet
+    DELETED_PRODUCTS: "DELETED_PRODUCTS" // For archiving
 };
 
 /**

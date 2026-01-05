@@ -34,18 +34,22 @@ function getProductCatalog() {
 
         if (header === 'status') map.status = i;
         else if (header === 'sku') map.sku = i;
-        else if (header === 'reference character') map.ref = i;
+        else if (header === 'reference character' || header === 'ref') map.ref = i;
         else if (header === 'product name') map.name = i;
-        else if (header === 'variation name') map.variation = i;
-        else if (header === 'price') map.price = i;
-        else if (header === 'category') map.category = i;
-        else if (header === 'quantity') map.quantity = i; // Units Per Case effectively
-        else if (header === 'image') map.image = i;
-        else if (header === 'colour' || header === 'color') map.backgroundColor = i;
-        else if (header === 'description') map.description = i;
 
-        // Legacy/Extra support
-        else if (header.includes('sale price')) map.salePrice = i;
+        // Robust Regex Matching for Variations
+        else if (/var.*2|2nd.*var|option|size|strength|dosage|mg/i.test(header) && !header.includes('image')) map.variation2 = i;
+        else if (/var.*1/i.test(header) || header === 'variation' || header === 'var' || header === 'variation name') map.variation = i;
+
+        else if (header === 'price') map.price = i;
+        else if (['sale', 'sale price'].includes(header)) map.salePrice = i;
+        else if (['category', 'cat'].includes(header)) map.category = i;
+        else if (['quantity', 'units per case', 'units', 'case'].includes(header)) map.quantity = i;
+        else if (/image/i.test(header)) map.image = i;
+        else if (['colour', 'color'].includes(header)) map.backgroundColor = i;
+        else if (/desc/i.test(header)) map.description = i;
+
+        // Legacy support
         else if (header.includes('on sale')) map.onSale = i;
     });
 
@@ -55,7 +59,7 @@ function getProductCatalog() {
     const fontColors = range.getFontColors();
 
     return data.map((row, rIndex) => {
-        // Optional Status Check? User didn't specify, but let's strict check if 'Inactive' exists
+        // Optional Status Check
         const status = map.status > -1 ? String(row[map.status]).toLowerCase() : "active";
         if (status === 'inactive' || status === 'archived') return null;
 
@@ -65,10 +69,11 @@ function getProductCatalog() {
             category: map.category > -1 ? row[map.category] : "Uncategorized",
             name: map.name > -1 ? row[map.name] : "",
             variation: map.variation > -1 ? row[map.variation] : "",
+            variation2: map.variation2 > -1 ? row[map.variation2] : "", // New
             price: map.price > -1 ? row[map.price] : 0,
-            unitsPerCase: map.quantity > -1 ? row[map.quantity] : 1, // Map Quantity to unitsPerCase
+            unitsPerCase: map.quantity > -1 ? row[map.quantity] : 1,
             salePrice: map.salePrice > -1 ? row[map.salePrice] : 0,
-            onSale: map.onSale > -1 ? Boolean(row[map.onSale]) : false,
+            onSale: map.onSale > -1 ? Boolean(row[map.onSale]) : (map.salePrice > -1 && Number(row[map.salePrice]) > 0),
             description: map.description > -1 ? row[map.description] : "",
             image: map.image > -1 ? row[map.image] : "",
             backgroundColor: map.backgroundColor > -1 ? row[map.backgroundColor] : "",
@@ -77,13 +82,7 @@ function getProductCatalog() {
     }).filter(p => p && p.sku && p.name);
 }
 
-/**
- * Get Existing SKUs for validation
- */
-function getExistingSkus() {
-    const products = getProductCatalog();
-    return products.map(p => p.sku);
-}
+// ... (existing getExistingSkus) ...
 
 /**
  * Add New Products Batch
@@ -93,9 +92,7 @@ function addProductBatch(newItems) {
     const sheet = getSheet(SHEET_NAMES.PRODUCTS);
     const lastRow = sheet.getLastRow();
 
-    // We need to map object keys back to column order
-    // This assumes a standard column order if we are appending
-    // Let's rely on finding headers first to be safe
+    // Mapping logic
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const headerMap = {};
     headers.forEach((h, i) => headerMap[String(h).trim().toLowerCase()] = i);
@@ -104,25 +101,13 @@ function addProductBatch(newItems) {
     const rowsToAdd = newItems.map(item => {
         const row = new Array(headers.length).fill("");
 
-        // Helper to set value if header exists (Fuzzy Match & Multi-Key)
+        // Helper to set value
         const setVal = (searchKeys, val) => {
             if (!Array.isArray(searchKeys)) searchKeys = [searchKeys];
-
-            // 1. Try exact matches from our headerMap
             for (const key of searchKeys) {
                 const lowerKey = key.toLowerCase();
                 if (headerMap[lowerKey] !== undefined) {
                     row[headerMap[lowerKey]] = val;
-                    return;
-                }
-            }
-
-            // 2. Try partial includes if strict match fails (fallback)
-            for (const key of searchKeys) {
-                const lowerKey = key.toLowerCase();
-                const foundKey = Object.keys(headerMap).find(k => k.includes(lowerKey));
-                if (foundKey) {
-                    row[headerMap[foundKey]] = val;
                     return;
                 }
             }
@@ -132,14 +117,17 @@ function addProductBatch(newItems) {
         setVal(['sku'], item.sku);
         setVal(['product name', 'name'], item.name);
         setVal(['category', 'cat'], item.category);
-        setVal(['variation', 'var', 'variation name'], item.variation);
+        setVal(['variation 1', 'variation', 'var'], item.variation);
+        setVal(['variation 2', 'var 2'], item.variation2); // New
         setVal(['unit price', 'price'], item.price);
-        setVal(['units per case', 'units/case', 'case', 'units', 'pc'], item.unitsPerCase || 1);
+        setVal(['units per case', 'units/case', 'quantity', 'units'], item.unitsPerCase || 1);
 
         // New Fields & Reference
-        if (item.ref) setVal(['ref', 'reference', 'ref #'], item.ref);
+        if (item.ref) setVal(['reference character', 'ref', 'reference'], item.ref);
         if (item.description) setVal(['description', 'desc'], item.description);
         if (item.image) setVal(['image url', 'img', 'image'], item.image);
+        if (item.backgroundColor) setVal(['colour', 'color'], item.backgroundColor); // New
+        if (item.salePrice) setVal(['sale', 'sale price'], item.salePrice); // New
 
         return row;
     });
@@ -167,4 +155,88 @@ function getGroupedProducts() {
     });
 
     return grouped;
+}
+
+/**
+ * Get Unique Base Products for Sidebar Dropdown
+ * Returns: [{name, category, description, image}, ...]
+ */
+function getExistingBaseProducts() {
+    const products = getProductCatalog();
+    const map = new Map();
+
+    products.forEach(p => {
+        // Use exact name as key
+        const baseName = p.name;
+        if (!map.has(baseName)) {
+            map.set(baseName, {
+                name: baseName,
+                category: p.category,
+                description: p.description,
+                image: p.image
+            });
+        }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getDebugHeaders() {
+    const sheet = getSheet(SHEET_NAMES.PRODUCTS);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    return headers.map(String);
+}
+
+/**
+ * Archive Products (Soft Delete)
+ * Moves selected SKUs to DELETED_PRODUCTS sheet
+ */
+function archiveProducts(skusToArchive) {
+    if (!skusToArchive || skusToArchive.length === 0) return { success: false, message: "No SKUs provided." };
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const prodSheet = ss.getSheetByName(SHEET_NAMES.PRODUCTS);
+
+    // Ensure Archive Sheet Exists
+    let archiveSheet = ss.getSheetByName(SHEET_NAMES.DELETED_PRODUCTS);
+    if (!archiveSheet) {
+        archiveSheet = ss.insertSheet(SHEET_NAMES.DELETED_PRODUCTS);
+        // Copy headers from Products
+        const headers = prodSheet.getRange(1, 1, 1, prodSheet.getLastColumn()).getValues();
+        archiveSheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
+    }
+
+    const data = prodSheet.getDataRange().getValues();
+    const headers = data[0];
+    const skuIndex = headers.findIndex(h => String(h).toLowerCase() === 'sku');
+
+    if (skuIndex === -1) return { success: false, message: "SKU Column not found." };
+
+    // Find rows to move
+    // We iterate backwards to delete safely
+    const rowsToMove = [];
+    const rowsToDelete = [];
+
+    for (let i = data.length - 1; i > 0; i--) { // Skip header
+        const val = String(data[i][skuIndex]);
+        if (skusToArchive.includes(val)) {
+            rowsToMove.push(data[i]);
+            rowsToDelete.push(i + 1); // 1-based index
+        }
+    }
+
+    if (rowsToMove.length === 0) return { success: false, message: "No matching products found." };
+
+    // 1. Append to Archive
+    // Reverse rowsToMove to maintain approximate order if desired, but not strictly necessary for archive
+    archiveSheet.getRange(archiveSheet.getLastRow() + 1, 1, rowsToMove.length, rowsToMove[0].length).setValues(rowsToMove.reverse());
+
+    // 2. Delete from Products
+    // Delete one by one? Or batch delete? Batch is hard with non-contiguous.
+    // Since we iterated backwards, we can delete safely one by one.
+    rowsToDelete.forEach(rowIdx => {
+        prodSheet.deleteRow(rowIdx);
+    });
+
+    return { success: true, count: rowsToMove.length };
 }
