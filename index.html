@@ -12,15 +12,66 @@
 
   <!-- CSS Include -->
   <?!= include('css'); ?>
+
+  <!-- Server-Injected Theme Override -->
+  <style>
+    :root {
+      <? var main=categorySettings['main'] || categorySettings['Main'] || categorySettings['MAIN'];
+      var mainColor="#32CD32"; // Default Brand Color
+      var mainText="#ffffff"; // SAFE DEFAULT
+
+      if (main) {
+        mainColor=(typeof main==='object' && main.color) ? main.color: (typeof main==='string' ? main : mainColor);
+
+        if (typeof main==='object' && main.textColor && String(main.textColor).trim() !=="") {
+          mainText=String(main.textColor).trim();
+        }
+
+        else {
+          var hex=String(mainColor).replace('#', '');
+
+          if (hex.length===6) {
+            var r=parseInt(hex.substr(0, 2), 16);
+            var g=parseInt(hex.substr(2, 2), 16);
+            var b=parseInt(hex.substr(4, 2), 16);
+            var score=((r * 299) + (g * 587) + (b * 114)) / 1000;
+            mainText=(score >=190) ? '#000000': '#ffffff';
+          }
+        }
+      }
+
+      if ( !mainText || mainText==="") mainText="#ffffff";
+      ?>
+    }
+
+    .md3-top-app-bar {
+      background-color: <?=mainColor ?> !important;
+      color: <?=mainText ?> !important;
+    }
+
+    .md3-top-app-bar .md3-headline-medium,
+    .md3-top-app-bar .md3-title-large {
+      color: <?=mainText ?> !important;
+    }
+
+    .primary-btn,
+    .md3-btn-filled {
+      background-color: <?=mainColor ?> !important;
+      color: <?=mainText ?> !important;
+    }
+  </style>
 </head>
 
 <body>
   <!-- App Bar -->
   <header class="md3-top-app-bar">
     <div class="md3-top-app-bar__content">
-      <h1 class="md3-headline-medium">Order Form v1.3.36</h1>
+      <h1 class="md3-headline-medium">Order Form
+        <?= version ?> ✨
+      </h1>
       <div id="header-total" class="md3-title-large" style="font-weight: bold;">Total: $0.00</div>
     </div>
+    <script>console.log('CLIENT_CATALOG_DEBUG_<?= version ?>:', typeof PRODUCT_CATALOG !== 'undefined' ? PRODUCT_CATALOG : 'NOT LOADED');</script>
   </header>
 
   <main class="md3-container">
@@ -135,21 +186,36 @@
     window.initialClientId = <?!= JSON.stringify(clientId) ?>;
     window.categorySettings = <?!= JSON.stringify(categorySettings) ?>;
 
-    // Apply Main Theme Color immediately if present
-    if (window.categorySettings && window.categorySettings['Main']) {
-      const setting = window.categorySettings['Main'];
-      const mainColor = (typeof setting === 'object' && setting.color) ? setting.color : setting;
+    /**
+     * Immediate Theme Application
+     */
+    (function () {
+      const getContrastYIQ = (hex) => {
+        if (!hex) return 'white';
+        const r = parseInt(hex.substr(1, 2), 16);
+        const g = parseInt(hex.substr(3, 2), 16);
+        const b = parseInt(hex.substr(5, 2), 16);
+        return (((r * 299) + (g * 587) + (b * 114)) / 1000 >= 190) ? 'black' : 'white';
+      };
 
-      const root = document.documentElement;
-      if (mainColor && typeof mainColor === 'string') {
-        root.style.setProperty('--md-sys-color-primary', mainColor);
+      const main = window.categorySettings ?
+        (window.categorySettings['main'] || window.categorySettings['Main'] || window.categorySettings['MAIN']) : null;
+
+      if (main) {
+        const color = (typeof main === 'object') ? main.color : main;
+        let text = (typeof main === 'object') ? main.textColor : '';
+        if (!text || text === '#000000') text = getContrastYIQ(color);
+
+        const root = document.documentElement;
+        root.style.setProperty('--md-sys-color-primary', color);
+        root.style.setProperty('--md-sys-color-on-primary', text);
       }
-    }
+    })();
   </script>
   <?!= include('js'); ?>
   <!-- Version Footer -->
   <div style="text-align: center; color: #aaa; font-size: 12px; padding: 20px;">
-    v1.3.36
+    v1.6.06 [STABLE]
   </div>
 </body>
 
