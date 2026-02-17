@@ -1,4 +1,26 @@
-.DS_Store
+# Dependencies
 node_modules/
 
+# OS files
+.DS_Store
+Thumbs.db
+
+# CLASP credentials & config (contains script IDs)
+.clasp.json
+.clasprc.json
+
+# Auth/login artifacts
+login_output.txt
+
+# Environment & secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Temp/build
+temp_clone/
 Code.js
+
+# Editor settings
+.vscode/
