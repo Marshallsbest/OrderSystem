@@ -32,3 +32,8 @@ temp_clone/
 
 # System backups and sensitive runtime data
 _SYSTEM_META/
+
+# Development logs & plans (not deployable code)
+SESSION_LOG_*.md
+ACTION_PLAN*.md
+MASTER_WORKFLOW.md
