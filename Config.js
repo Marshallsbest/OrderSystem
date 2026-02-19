@@ -4,7 +4,7 @@
  */
 
 const APP_TITLE = "Order System";
-const CURRENT_VERSION = "v0.9.01";
+const CURRENT_VERSION = "v0.9.16";
 
 const SHEET_NAMES = {
     DASHBOARD: "DASHBOARD",

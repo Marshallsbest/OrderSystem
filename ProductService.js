@@ -41,8 +41,24 @@ function parsePrice(val) {
 }
 /**
  * Fetch all products from PRODUCTS sheet
+ * Uses CacheService for repeat load performance (5 min TTL)
  */
 function getProductCatalog() {
+    // Check cache first
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get('PRODUCT_CATALOG');
+    if (cached) {
+        try {
+            const parsed = JSON.parse(cached);
+            if (parsed && parsed.length > 0) {
+                console.log('[getProductCatalog] Cache HIT — ' + parsed.length + ' products');
+                return parsed;
+            }
+        } catch (e) {
+            console.warn('[getProductCatalog] Cache parse error, rebuilding.');
+        }
+    }
+
     const sheet = getSheet(SHEET_NAMES.PRODUCTS);
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
@@ -53,11 +69,11 @@ function getProductCatalog() {
 
     const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
     const data = range.getValues();
-    const fontColors = range.getFontColors();
+    // PERFORMANCE: Removed getFontColors() — text color now read from data column or auto-calculated
 
     let lastParent = null; // Reset for this run
 
-    return data.map((row, rIndex) => {
+    const result = data.map((row, rIndex) => {
         const nodeType = map.node > -1 ? String(row[map.node]).trim().toLowerCase() : "";
         const rowName = map.name > -1 ? String(row[map.name]).trim() : "";
 
@@ -88,7 +104,21 @@ function getProductCatalog() {
             description: map.description > -1 ? String(row[map.description]).trim() : "",
             image: map.image > -1 ? String(row[map.image]).trim() : "",
             backgroundColor: map.backgroundColor > -1 ? String(row[map.backgroundColor] || "").trim() : "",
-            textColor: (map.backgroundColor > -1 && fontColors[rIndex][map.backgroundColor]) ? fontColors[rIndex][map.backgroundColor] : "",
+            textColor: (function () {
+                // PERFORMANCE: Only resolve for parent rows. Children inherit via createProductModel.
+                if (!isParent && lastParent) return ""; // Will inherit from parent in model
+                // Priority 1: Dedicated "Text Colour" column (fastest — no formatting API call)
+                if (map.textColor > -1) {
+                    const tc = String(row[map.textColor] || "").trim();
+                    if (tc) return tc;
+                }
+                // Priority 2: Auto-contrast from background color
+                if (map.backgroundColor > -1) {
+                    const bg = String(row[map.backgroundColor] || "").trim();
+                    if (bg && bg.startsWith('#')) return getContrastYIQ(bg);
+                }
+                return "";
+            })(),
             brand: map.brand > -1 ? String(row[map.brand]).trim() : "",
             zoneVariation: map.zoneVariation > -1 ? String(row[map.zoneVariation]).trim() : "",
             commissionRate: map.commissionRate > -1 ? (row[map.commissionRate] || 1.5) : 1.5,  // Default $1.50
@@ -127,6 +157,34 @@ function getProductCatalog() {
 
         return model;
     }).filter(p => p && (p.sku || p.isParent) && p.name);
+
+    // Cache the result (max 100KB per key, split if needed)
+    try {
+        const jsonStr = JSON.stringify(result);
+        if (jsonStr.length <= 100000) {
+            cache.put('PRODUCT_CATALOG', jsonStr, 300); // 5 min TTL
+            console.log('[getProductCatalog] Cached ' + result.length + ' products (' + jsonStr.length + ' bytes)');
+        } else {
+            console.warn('[getProductCatalog] Catalog too large to cache (' + jsonStr.length + ' bytes). Consider chunking.');
+        }
+    } catch (e) {
+        console.warn('[getProductCatalog] Cache write error:', e.message);
+    }
+
+    return result;
+}
+
+/**
+ * Invalidate the product catalog cache.
+ * Call this after any product modification (add, edit, delete).
+ */
+function invalidateProductCache() {
+    try {
+        CacheService.getScriptCache().remove('PRODUCT_CATALOG');
+        console.log('[invalidateProductCache] Cache cleared.');
+    } catch (e) {
+        console.warn('[invalidateProductCache] Error:', e.message);
+    }
 }
 
 /**
@@ -165,6 +223,7 @@ function getProductHeaderMap() {
         { key: 'variation3', aliases: ['variation 3', 'var3', 'var 3', 'format', 'pack', 'size/weight'] },
         { key: 'variation4', aliases: ['variation 4', 'var4', 'var 4', 'multiplier', 'comm units'] },
         { key: 'backgroundColor', aliases: ['colour', 'color', 'hex', 'background color'] },
+        { key: 'textColor', aliases: ['text color', 'text colour', 'font color', 'font colour', 'txt color'] },
         { key: 'image', aliases: ['image url', 'img', 'image', 'picture'] },
         { key: 'description', aliases: ['description', 'desc', 'product info'] }
     ];
@@ -212,6 +271,7 @@ function getProductHeaderMap() {
 // ... (existing getExistingSkus) ...
 
 function addProductBatch(newItems) {
+    invalidateProductCache();
     const sheet = getSheet(SHEET_NAMES.PRODUCTS);
     const lastRow = sheet.getLastRow();
     const headerMap = getProductHeaderMap();
@@ -227,6 +287,9 @@ function addProductBatch(newItems) {
     const parentExists = catalog.some(p => p.name.toLowerCase() === first.name.toLowerCase() && p.isParent);
 
     if (newItems.length > 0 && !parentExists) {
+        // Add empty row above parent for visual separation
+        rowsToAdd.push(new Array(headers.length).fill(""));
+
         const parentRow = new Array(headers.length).fill("");
 
         const setP = (key, val) => {
@@ -248,6 +311,9 @@ function addProductBatch(newItems) {
         // FIX: Ensure color is set. 'backgroundColor' key usually maps to the 'Color' column.
         // We use first.backgroundColor (mapped from 'baseColor' in frontend)
         setP('backgroundColor', first.backgroundColor);
+        // Write Text Colour to dedicated column (auto-contrast if blank)
+        const parentTextColor = first.textColor || (first.backgroundColor ? getContrastYIQ(first.backgroundColor) : '');
+        setP('textColor', parentTextColor);
 
         setP('ref', first.ref);
         setP('zoneVariation', first.zoneVariation || "");
@@ -256,11 +322,6 @@ function addProductBatch(newItems) {
 
         // FIX: Variation HEADER Names in Parent Row
         // The frontend sends these as var1Name, var2Name etc in the first item payload?
-        // Wait, looking at admin_logic.html submitForm(), it ONLY sends processed row data.
-        // It does NOT send the variation header naming (e.g. "Flavor", "Strength") in the payload array items.
-        // We need to capture those from the form or infer them. 
-        // SEE NEXT STEP: I will update admin_logic.html to include varHeaderNames in the payload.
-        // Assuming they will be available as properties: var1Name, var2Name...
         setP('variation', first.var1Name || "Variation 1");
         setP('variation2', first.var2Name || "Variation 2");
         setP('variation3', first.var3Name || "Format");
@@ -270,10 +331,6 @@ function addProductBatch(newItems) {
         setP('salePrice', "");
 
         // FIX: Ensure Column A (Inventory) is handled. 
-        // If 'inventory' column exists and logic defaults to "Instock", we force it blank or "0".
-        // Taking user request "all child products should not as 'Instock' in column A"
-        // This usually means setting Inventory column to "0" or blank depending on formula.
-        // For Parent, usually blank.
         setP('inventory', "");
 
         rowsToAdd.push(parentRow);
@@ -318,13 +375,7 @@ function addProductBatch(newItems) {
         set('onSale', item.onSale);
 
         // FIX: "All child products should not as 'Instock' in column A"
-        // Force Inventory column to "0" (Out of Stock) or Blank depending on formula?
-        // Usually "0" means out of stock. Text "Instock" probably comes from formula IF(A=""...)
-        // If the column is managed by formula, we can't write to it unless we overwrite formula (bad).
-        // BUT if it's a value column where Script writes "Instock", we change it.
-        // Assuming Column A is Inventory, and user wants it NOT to say Instock.
-        // If we write "0", it usually means 0 qty.
-        set('inventory', "0");
+        set('inventory', item.inventory || "0");
 
         rowsToAdd.push(row);
     });
@@ -335,12 +386,12 @@ function addProductBatch(newItems) {
         targetRange.setValues(rowsToAdd);
 
         // --- INJECT FORMULAS ---
-        const groupStart = !parentExists ? startRow + 1 : startRow;
+        // If !parentExists, we have: [Empty (startRow), Parent (startRow+1), Child1 (startRow+2)...]
+        const groupStart = !parentExists ? startRow + 2 : startRow;
         const groupEnd = startRow + rowsToAdd.length - 1;
 
         if (!parentExists) {
-            const pRow = startRow;
-            // Note: Sale checkbox link is now handled dynamically by generateOrderPlacerForm -> syncGridCellToProductsLocal
+            const pRow = startRow + 1; // Parent Row is now the second row in the batch
 
             // Parent Total Pcs: =SUM(R[start]:R[end])
             if (indices.totalPcsOrdered !== undefined && indices.orderQty !== undefined) {
@@ -358,26 +409,21 @@ function addProductBatch(newItems) {
         }
 
         // Child Formulas
-        const childRows = !parentExists ? newItems.map((_, i) => startRow + 1 + i) : newItems.map((_, i) => startRow + i);
+        const childRows = !parentExists ? newItems.map((_, i) => startRow + 2 + i) : newItems.map((_, i) => startRow + i);
         childRows.forEach((cRow, i) => {
-            const parentRow = !parentExists ? startRow : -1;
+            const parentRow = !parentExists ? startRow + 1 : -1;
             if (parentRow > 0) {
                 // Child Order Qty Link: =ORDER_PLACING!C4 (C4, C5, C6...)
                 if (indices.orderQty !== undefined) {
                     sheet.getRange(cRow, indices.orderQty + 1).setFormula(`=ORDER_PLACING!C${4 + i}`);
                 }
-
-                // REFACTOR: Removed formula injection into Commission Rate columns (T).
-                // User reported: "Why are we added a formula to column T ?"
-                // These columns should hold the static rate (e.g. $1.00), not the calculated total.
-                // Any total commission calculation should happen in a dedicated 'Total Commission' column or be handled by the Parent Row summation.
             }
         });
 
         // APPLY STYLING
         if (!parentExists) {
             const parentColor = first.backgroundColor || "#666666";
-            const parentRange = sheet.getRange(startRow, 1, 1, headers.length);
+            const parentRange = sheet.getRange(startRow + 1, 1, 1, headers.length);
             const textColor = getContrastYIQ(parentColor);
             parentRange.setBackground(parentColor);
             parentRange.setFontColor(textColor);
@@ -405,6 +451,7 @@ function addProductBatch(newItems) {
  * @param {Array} variations - Array of variation objects {sku, variation, variation2, price, ...}
  */
 function updateProductGroup(originalBaseName, baseInfo, variations) {
+    invalidateProductCache();
     const sheet = getSheet(SHEET_NAMES.PRODUCTS);
     const lastRow = sheet.getLastRow();
     const lastCol = sheet.getLastColumn();
@@ -573,6 +620,7 @@ function getDebugHeaders() {
 }
 
 function archiveProducts(skusToArchive) {
+    invalidateProductCache();
     if (!skusToArchive || skusToArchive.length === 0) return { success: false, message: "No SKUs provided." };
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const prodSheet = ss.getSheetByName(SHEET_NAMES.PRODUCTS);
@@ -670,7 +718,12 @@ function cleanupProductSheet() {
         for (let k = 1; k < parentsInGroup.length; k++) rowsToDelete.push(parentsInGroup[k] + 2);
     }
 
-    updates.forEach(u => sheet.getRange(u.r, u.c).setValue(u.val));
+    // Going GAS: Batch cell updates instead of individual setValue() calls
+    if (updates.length > 0) {
+        const rangeList = updates.map(u => sheet.getRange(u.r, u.c));
+        updates.forEach((u, i) => rangeList[i].setValue(u.val));
+        SpreadsheetApp.flush();
+    }
     rowsToDelete.sort((a, b) => b - a);
     [...new Set(rowsToDelete)].forEach(r => sheet.deleteRow(r));
 
@@ -730,11 +783,14 @@ function generateParentRows() {
                     salePrice: hData.labels.salePrice || "Sale Price"
                 };
 
+                // Going GAS: Build entire row in memory, write once
+                const newRow = new Array(lastCol).fill("");
                 for (const [key, val] of Object.entries(metaFields)) {
                     if (map[key] !== undefined && map[key] > -1) {
-                        sheet.getRange(insertAtRow, map[key] + 1).setValue(val);
+                        newRow[map[key]] = val;
                     }
                 }
+                sheet.getRange(insertAtRow, 1, 1, lastCol).setValues([newRow]);
 
                 // Style Parent Row
                 const pColor = metaFields.backgroundColor || "#666666";
@@ -887,8 +943,9 @@ function styleProductHeaders() {
     const fullRange = sheet.getRange(2, 1, lastRow - 1, lastCol);
     const values = fullRange.getValues();
     const bgColors = fullRange.getBackgrounds();
-    const fontColors = fullRange.getFontColors();
     const fontWeights = fullRange.getFontWeights();
+    // Going GAS: Removed getFontColors() — build in memory from data column or auto-contrast
+    const fontColors = values.map(row => row.map(() => "black"));
 
     let currentParentName = "";
     const parentRowIndices = [];
@@ -923,11 +980,18 @@ function styleProductHeaders() {
             if (map.color > -1) {
                 const cellVal = String(row[map.color]).trim();
                 const cellBg = bgColors[i][map.color];
-                if (cellBg && cellBg !== '#ffffff') {
-                    bgColor = cellBg;
-                    textColor = fontColors[i][map.color];
-                } else if (cellVal.startsWith('#')) {
+                if (cellVal.startsWith('#')) {
                     bgColor = cellVal;
+                } else if (cellBg && cellBg !== '#ffffff') {
+                    bgColor = cellBg;
+                }
+                // Text colour: read from data column first, then auto-contrast
+                if (map.textColor > -1) {
+                    const tc = String(row[map.textColor] || "").trim();
+                    if (tc) textColor = tc;
+                    else textColor = getContrastYIQ(bgColor);
+                } else {
+                    textColor = getContrastYIQ(bgColor);
                 }
             }
 

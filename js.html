@@ -510,6 +510,10 @@
             cssRules += `.app-header, .md3-top-app-bar, .md3-title-large, .total-amount { color: var(--md-sys-color-on-primary) !important; } \n`;
             cssRules += `.primary-btn { background-color: var(--md-sys-color-primary) !important; color: var(--md-sys-color-on-primary) !important; } \n`;
 
+            // Forced styles for FAB button (secondary color)
+            cssRules += `.md3-fab-fixed { background-color: ${styles.secondaryColor || '#625b71'} !important; color: ${styles.secondaryTextColor || '#ffffff'} !important; } \n`;
+            cssRules += `.md3-fab-fixed .material-symbols-outlined { color: ${styles.secondaryTextColor || '#ffffff'} !important; } \n`;
+
             // Header Layout Spacing Fix
             cssRules += `.app-header-content { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; } \n`;
             cssRules += `#header-total { margin-left: auto; margin-right: 32px; font-variant-numeric: tabular-nums; } \n`;
@@ -521,7 +525,7 @@
             const cleanClass = 'cat-' + normalizedKey;
 
             if (cleanClass && color) {
-                const textColor = (typeof setting === 'object' && setting.textColor && setting.textColor !== '#000000') ? setting.textColor : getContrastYIQ(color);
+                const textColor = (typeof setting === 'object' && setting.textColor) ? setting.textColor : getContrastYIQ(color);
 
                 // Color ONLY in OPEN state
                 cssRules += `.${cleanClass} [open] > .category-summary { background-color: ${color} !important; color: ${textColor} !important; } \n`;

@@ -21,40 +21,6 @@
       var primaryText=appStyles.primaryTextColor || "";
       var secondaryColor=appStyles.secondaryColor || "#625b71";
       var secondaryText=appStyles.secondaryTextColor || "";
-
-      // Auto-compute text contrast if not explicitly set
-      if ( !primaryText || primaryText==="") {
-        var hex=String(primaryColor).replace('#', '');
-
-        if (hex.length===6) {
-          var r=parseInt(hex.substr(0, 2), 16);
-          var g=parseInt(hex.substr(2, 2), 16);
-          var b=parseInt(hex.substr(4, 2), 16);
-          var score=((r * 299) + (g * 587) + (b * 114)) / 1000;
-          primaryText=(score >=190) ? '#000000': '#ffffff';
-        }
-
-        else {
-          primaryText='#ffffff';
-        }
-      }
-
-      if ( !secondaryText || secondaryText==="") {
-        var hex2=String(secondaryColor).replace('#', '');
-
-        if (hex2.length===6) {
-          var r2=parseInt(hex2.substr(0, 2), 16);
-          var g2=parseInt(hex2.substr(2, 2), 16);
-          var b2=parseInt(hex2.substr(4, 2), 16);
-          var score2=((r2 * 299) + (g2 * 587) + (b2 * 114)) / 1000;
-          secondaryText=(score2 >=190) ? '#000000': '#ffffff';
-        }
-
-        else {
-          secondaryText='#ffffff';
-        }
-      }
-
       ?>--md-sys-color-primary: <?=primaryColor ?>;
       --md-sys-color-on-primary: <?=primaryText ?>;
       --md-sys-color-secondary: <?=secondaryColor ?>;
@@ -75,6 +41,15 @@
     .md3-btn-filled {
       background-color: <?=primaryColor ?> !important;
       color: <?=primaryText ?> !important;
+    }
+
+    .md3-fab-fixed {
+      background-color: <?=secondaryColor ?> !important;
+      color: <?=secondaryText ?> !important;
+    }
+
+    .md3-fab-fixed .material-symbols-outlined {
+      color: <?=secondaryText ?> !important;
     }
   </style>
 </head>
@@ -280,8 +255,9 @@
     </div>
 
     <!-- Collapse All FAB -->
-    <button class="md3-fab-fixed" id="collapse-fab" onclick="collapseAllCats()">
-      <span class="material-symbols-outlined">unfold_less</span>
+    <button class="md3-fab-fixed" id="collapse-fab" onclick="collapseAllCats()"
+      style="background-color: <?=secondaryColor ?>; color: <?=secondaryText ?>;">
+      <span class="material-symbols-outlined" style="color: <?=secondaryText ?>;">unfold_less</span>
     </button>
 
   </main>

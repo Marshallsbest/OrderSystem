@@ -480,37 +480,76 @@ function getAppStyles() {
     if (rawValues['PRIMARY_COLOUR']) {
         const resolved = resolveColor_(rawValues['PRIMARY_COLOUR'], colorDefs);
         styles.primaryColor = resolved.hex;
-        if (resolved.textColor && !rawValues['PRIMARY_COLOUR_TEXT']) {
-            // Named color — use text color from definitions table
-            styles.primaryTextColor = resolved.textColor;
-        } else if (!resolved.textColor && !rawValues['PRIMARY_COLOUR_TEXT'] && rangeRefs['PRIMARY_COLOUR']) {
-            // Raw hex — read font color from the cell itself
-            styles.primaryTextColor = rangeRefs['PRIMARY_COLOUR'].getFontColor();
-        }
     }
-    // Explicit text color override always wins
-    if (rawValues['PRIMARY_COLOUR_TEXT']) {
-        const resolved = resolveColor_(rawValues['PRIMARY_COLOUR_TEXT'], colorDefs);
-        styles.primaryTextColor = resolved.hex;
+
+    // PRIMARY_COLOUR_TEXT logic
+    if (rawValues['PRIMARY_COLOUR_TEXT'] && rawValues['PRIMARY_COLOUR_TEXT'] !== rawValues['PRIMARY_COLOUR']) {
+        styles.primaryTextColor = rawValues['PRIMARY_COLOUR_TEXT'];
+    } else {
+        // Fallback: If text color is missing OR is identical to background, read from cell font color
+        try {
+            if (rangeRefs['PRIMARY_COLOUR']) {
+                styles.primaryTextColor = rangeRefs['PRIMARY_COLOUR'].getFontColor();
+            }
+        } catch (e) {
+            console.warn('[getAppStyles] Error fetching font color for PRIMARY_COLOUR:', e.message);
+        }
     }
 
     // Resolve SECONDARY_COLOUR
     if (rawValues['SECONDARY_COLOUR']) {
         const resolved = resolveColor_(rawValues['SECONDARY_COLOUR'], colorDefs);
         styles.secondaryColor = resolved.hex;
-        if (resolved.textColor && !rawValues['SECONDARY_COLOUR_TEXT']) {
-            styles.secondaryTextColor = resolved.textColor;
-        } else if (!resolved.textColor && !rawValues['SECONDARY_COLOUR_TEXT'] && rangeRefs['SECONDARY_COLOUR']) {
-            styles.secondaryTextColor = rangeRefs['SECONDARY_COLOUR'].getFontColor();
-        }
     }
-    if (rawValues['SECONDARY_COLOUR_TEXT']) {
-        const resolved = resolveColor_(rawValues['SECONDARY_COLOUR_TEXT'], colorDefs);
-        styles.secondaryTextColor = resolved.hex;
+
+    // SECONDARY_COLOUR_TEXT logic
+    if (rawValues['SECONDARY_COLOUR_TEXT'] && rawValues['SECONDARY_COLOUR_TEXT'] !== rawValues['SECONDARY_COLOUR']) {
+        styles.secondaryTextColor = rawValues['SECONDARY_COLOUR_TEXT'];
+    } else {
+        // Fallback: If text color is missing OR is identical to background, read from cell font color
+        try {
+            if (rangeRefs['SECONDARY_COLOUR']) {
+                styles.secondaryTextColor = rangeRefs['SECONDARY_COLOUR'].getFontColor();
+            }
+        } catch (e) {
+            console.warn('[getAppStyles] Error fetching font color for SECONDARY_COLOUR:', e.message);
+        }
     }
 
     console.log('[getAppStyles] Loaded:', JSON.stringify(styles));
     return styles;
+}
+
+/**
+ * Ensure text color has adequate contrast against background.
+ * If contrast is insufficient, returns white or black based on background luminance.
+ * @param {string} bgHex - Background color hex (e.g. '#0000FF')
+ * @param {string} textHex - Text color hex (e.g. '#000000')
+ * @returns {string} - Validated text color hex
+ */
+function ensureContrast_(bgHex, textHex) {
+    if (!bgHex || !textHex) return textHex || '#ffffff';
+
+    const toLum = (hex) => {
+        const h = String(hex).replace('#', '');
+        if (h.length !== 6) return -1;
+        const r = parseInt(h.substr(0, 2), 16);
+        const g = parseInt(h.substr(2, 2), 16);
+        const b = parseInt(h.substr(4, 2), 16);
+        return ((r * 299) + (g * 587) + (b * 114)) / 1000;
+    };
+
+    const bgLum = toLum(bgHex);
+    const txtLum = toLum(textHex);
+    if (bgLum < 0) return textHex; // Can't parse bg, leave as-is
+
+    // Check if contrast is sufficient (difference > 100 on 0-255 scale)
+    if (txtLum >= 0 && Math.abs(bgLum - txtLum) > 100) {
+        return textHex; // Contrast is fine
+    }
+
+    // Insufficient contrast — pick white or black based on background
+    return (bgLum >= 128) ? '#000000' : '#ffffff';
 }
 
 /**
@@ -554,8 +593,9 @@ function getCategorySettings() {
 
     headers.forEach((h, i) => {
         const head = String(h).trim().toLowerCase();
-        if (head.includes('color') || head.includes('colour') || head === 'hex') colorIdx = i;
-        else if (head.includes('text color') || head.includes('font color') || head === 'text') textColIdx = i;
+        // IMPORTANT: Check 'text colour' BEFORE generic 'colour' to prevent false match
+        if (head.includes('text colo') || head.includes('font colo') || head === 'text colour' || head === 'text color') textColIdx = i;
+        else if (head.includes('color') || head.includes('colour') || head === 'hex') colorIdx = i;
         else if (head.includes('sale active') || head.includes('sale status') || head.includes('sale mode')) saleIdx = i;
         else if (head.includes('order') || head.includes('sort') || head.includes('display')) orderCandidates.push(i);
     });
@@ -586,7 +626,7 @@ function getCategorySettings() {
     const range = sheet.getRange(headerRowIdx + 1, 1, lastRow - headerRowIdx, sheet.getLastColumn());
     const dataSlice = range.getValues();
     const backgrounds = range.getBackgrounds();
-    const fontColors = range.getFontColors();
+    // PERFORMANCE (Going GAS): Removed getFontColors() — text colour now read from data column
 
     for (let r = 0; r < dataSlice.length; r++) {
         const rawCatName = String(dataSlice[r][catColIdx]).trim();
@@ -607,8 +647,15 @@ function getCategorySettings() {
             }
         }
 
-        const catColor = colorIdx > -1 ? backgrounds[r][colorIdx] : "#cccccc";
-        const catText = colorIdx > -1 ? fontColors[r][colorIdx] : "";
+        const catColor = colorIdx > -1 ? (String(dataSlice[r][colorIdx] || "").trim() || backgrounds[r][colorIdx]) : "#cccccc";
+        // Read text colour from dedicated column, auto-contrast fallback
+        let catText = "";
+        if (textColIdx > -1) {
+            catText = String(dataSlice[r][textColIdx] || "").trim();
+        }
+        if (!catText && catColor && catColor.startsWith('#')) {
+            catText = getContrastYIQ(catColor);
+        }
         const catSection = sectionIdx > -1 ? String(dataSlice[r][sectionIdx]).trim().toUpperCase() : "";
 
         settings[catKey] = {
@@ -661,39 +708,32 @@ function getVariationDefaults() {
  * Table structure: Group Name | Variation Number | Group Data (Comma Separated List)
  * Returns: [{ groupName, variationNumber, values: [...] }, ...]
  */
+/**
+ * Fetch Variation Groups from the "VARIATION_GROUPS_AND_VALUES" named range.
+ * Range contains: [Title, Header Row, Data Rows...]
+ * Returns: [{ groupName, variationNumber, values: [...] }, ...]
+ */
 function getVariationGroups() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
+    const range = ss.getRangeByName('VARIATION_GROUPS_AND_VALUES');
     const groups = [];
-    if (!sheet) return groups;
-
-    const data = sheet.getDataRange().getValues();
-
-    // Find the "Variation Groups and Values" table header
-    let startRow = -1;
-    for (let r = 0; r < data.length; r++) {
-        const cellVal = String(data[r][0] || '').trim().toLowerCase();
-        if (cellVal.includes('variation group') && cellVal.includes('value')) {
-            startRow = r;
-            break;
-        }
+    if (!range) {
+        console.warn('[getVariationGroups] Named range VARIATION_GROUPS_AND_VALUES not found.');
+        return groups;
     }
-    if (startRow === -1) return groups;
 
-    // Find the actual column headers row (the row after the table title)
-    // Expect: Group Name | Variation Number | Group Data
-    const headerRow = startRow + 1;
-    if (headerRow >= data.length) return groups;
+    const data = range.getValues();
+    const startRow = range.getRow();
+    const startCol = range.getColumn();
 
-    // Read data rows below the header
-    for (let r = headerRow + 1; r < data.length; r++) {
-        const groupName = String(data[r][0] || '').trim();
-        if (!groupName) break; // Stop at first empty row
+    // Skip the title (index 0) and header (index 1)
+    for (let i = 2; i < data.length; i++) {
+        const groupName = String(data[i][0] || '').trim();
+        if (!groupName) continue; // Skip empty rows within the range
 
-        const varNum = parseInt(String(data[r][1] || '1')) || 1;
-        const rawValues = String(data[r][2] || '').trim();
+        const varNum = parseInt(String(data[i][1] || '1')) || 1;
+        const rawValues = String(data[i][2] || '').trim();
 
-        // Parse comma-separated values
         const values = rawValues
             .split(',')
             .map(v => v.trim())
@@ -702,52 +742,68 @@ function getVariationGroups() {
         groups.push({
             groupName: groupName,
             variationNumber: varNum,
-            values: values
+            values: values,
+            _absoluteRow: startRow + i,  // 1-indexed sheet row
+            _absoluteCol: startCol       // 1-indexed sheet column
         });
     }
 
-    console.log('[getVariationGroups] Found ' + groups.length + ' groups');
+    console.log('[getVariationGroups] Found ' + groups.length + ' groups in named range.');
     return groups;
 }
 
 /**
  * Add a new value to an existing Variation Group in SETTINGS.
- * Appends the value to the comma-separated list in column C.
  */
 function addValueToVariationGroup(groupName, newValue) {
+    const groups = getVariationGroups();
+    const group = groups.find(g => g.groupName.toLowerCase() === groupName.toLowerCase());
+
+    if (!group) throw new Error('Group "' + groupName + '" not found in VARIATION_GROUPS_AND_VALUES.');
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
-    if (!sheet) throw new Error('SETTINGS sheet not found.');
+    const range = ss.getRangeByName('VARIATION_GROUPS_AND_VALUES');
+    if (!range) throw new Error('Range not found during update.');
+    const sheet = range.getSheet();
 
-    const data = sheet.getDataRange().getValues();
+    const existingValues = group.values;
+    if (existingValues.includes(newValue)) return { success: true };
 
-    // Find the "Variation Groups and Values" table
-    let startRow = -1;
-    for (let r = 0; r < data.length; r++) {
-        const cellVal = String(data[r][0] || '').trim().toLowerCase();
-        if (cellVal.includes('variation group') && cellVal.includes('value')) {
-            startRow = r;
+    const updated = existingValues.length > 0 ? existingValues.join(', ') + ', ' + newValue : newValue;
+    sheet.getRange(group._absoluteRow, group._absoluteCol + 2).setValue(updated);
+
+    return { success: true };
+}
+
+/**
+ * Create a new Variation Group in the persistent table.
+ */
+function createNewVariationGroup(varNum, groupName, valuesString) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const range = ss.getRangeByName('VARIATION_GROUPS_AND_VALUES');
+    if (!range) throw new Error('VARIATION_GROUPS_AND_VALUES named range not found.');
+
+    const sheet = range.getSheet();
+    const data = range.getValues();
+    const startRow = range.getRow();
+    const startCol = range.getColumn();
+
+    // Find the first empty row within or after the range
+    let insertRow = -1;
+    for (let i = 2; i < data.length; i++) {
+        if (!String(data[i][0] || '').trim()) {
+            insertRow = startRow + i;
             break;
         }
     }
-    if (startRow === -1) throw new Error('Variation Groups table not found in SETTINGS.');
 
-    // Find the matching group row (skip header at startRow+1)
-    for (let r = startRow + 2; r < data.length; r++) {
-        const name = String(data[r][0] || '').trim();
-        if (!name) break;
-
-        if (name.toLowerCase() === groupName.toLowerCase()) {
-            // Append to existing comma-separated list in column C (index 2)
-            const existing = String(data[r][2] || '').trim();
-            const updated = existing ? existing + ', ' + newValue : newValue;
-            sheet.getRange(r + 1, 3).setValue(updated); // r+1 because data is 0-indexed, sheet is 1-indexed
-            console.log('[addValueToVariationGroup] Added "' + newValue + '" to group "' + groupName + '"');
-            return { success: true };
-        }
+    if (insertRow === -1) {
+        // Append at the bottom of the named range's row sequence
+        insertRow = startRow + data.length;
     }
 
-    throw new Error('Group "' + groupName + '" not found in Variation Groups table.');
+    sheet.getRange(insertRow, startCol, 1, 3).setValues([[groupName, varNum, valuesString]]);
+    return { success: true, groupName: groupName };
 }
 
 /**
