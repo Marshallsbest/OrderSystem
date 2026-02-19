@@ -12,52 +12,69 @@
 
   <!-- CSS Include -->
   <?!= include('css'); ?>
+  <?!= include('admin_css'); ?>
 
-  <!-- Server-Injected Theme Override -->
+  <!-- Server-Injected Theme Override (from APP_STYLES named ranges) -->
   <style>
     :root {
-      <? var main=categorySettings['main'] || categorySettings['Main'] || categorySettings['MAIN'];
-      var mainColor="#32CD32"; // Default Brand Color
-      var mainText="#ffffff"; // SAFE DEFAULT
+      <? var primaryColor=appStyles.primaryColor || "#FFA500";
+      var primaryText=appStyles.primaryTextColor || "";
+      var secondaryColor=appStyles.secondaryColor || "#625b71";
+      var secondaryText=appStyles.secondaryTextColor || "";
 
-      if (main) {
-        mainColor=(typeof main==='object' && main.color) ? main.color: (typeof main==='string' ? main : mainColor);
+      // Auto-compute text contrast if not explicitly set
+      if ( !primaryText || primaryText==="") {
+        var hex=String(primaryColor).replace('#', '');
 
-        if (typeof main==='object' && main.textColor && String(main.textColor).trim() !=="") {
-          mainText=String(main.textColor).trim();
+        if (hex.length===6) {
+          var r=parseInt(hex.substr(0, 2), 16);
+          var g=parseInt(hex.substr(2, 2), 16);
+          var b=parseInt(hex.substr(4, 2), 16);
+          var score=((r * 299) + (g * 587) + (b * 114)) / 1000;
+          primaryText=(score >=190) ? '#000000': '#ffffff';
         }
 
         else {
-          var hex=String(mainColor).replace('#', '');
-
-          if (hex.length===6) {
-            var r=parseInt(hex.substr(0, 2), 16);
-            var g=parseInt(hex.substr(2, 2), 16);
-            var b=parseInt(hex.substr(4, 2), 16);
-            var score=((r * 299) + (g * 587) + (b * 114)) / 1000;
-            mainText=(score >=190) ? '#000000': '#ffffff';
-          }
+          primaryText='#ffffff';
         }
       }
 
-      if ( !mainText || mainText==="") mainText="#ffffff";
-      ?>
+      if ( !secondaryText || secondaryText==="") {
+        var hex2=String(secondaryColor).replace('#', '');
+
+        if (hex2.length===6) {
+          var r2=parseInt(hex2.substr(0, 2), 16);
+          var g2=parseInt(hex2.substr(2, 2), 16);
+          var b2=parseInt(hex2.substr(4, 2), 16);
+          var score2=((r2 * 299) + (g2 * 587) + (b2 * 114)) / 1000;
+          secondaryText=(score2 >=190) ? '#000000': '#ffffff';
+        }
+
+        else {
+          secondaryText='#ffffff';
+        }
+      }
+
+      ?>--md-sys-color-primary: <?=primaryColor ?>;
+      --md-sys-color-on-primary: <?=primaryText ?>;
+      --md-sys-color-secondary: <?=secondaryColor ?>;
+      --md-sys-color-on-secondary: <?=secondaryText ?>;
     }
 
     .md3-top-app-bar {
-      background-color: <?=mainColor ?> !important;
-      color: <?=mainText ?> !important;
+      background-color: <?=primaryColor ?> !important;
+      color: <?=primaryText ?> !important;
     }
 
     .md3-top-app-bar .md3-headline-medium,
     .md3-top-app-bar .md3-title-large {
-      color: <?=mainText ?> !important;
+      color: <?=primaryText ?> !important;
     }
 
     .primary-btn,
     .md3-btn-filled {
-      background-color: <?=mainColor ?> !important;
-      color: <?=mainText ?> !important;
+      background-color: <?=primaryColor ?> !important;
+      color: <?=primaryText ?> !important;
     }
   </style>
 </head>
@@ -67,9 +84,21 @@
   <header class="md3-top-app-bar">
     <div class="md3-top-app-bar__content">
       <h1 class="md3-headline-medium">Order Form
-        <?= version ?> ✨
+        <?= version ?>
       </h1>
       <div id="header-total" class="md3-title-large" style="font-weight: bold;">Total: $0.00</div>
+    </div>
+    <!-- Navigation Tabs -->
+    <div id="nav-tabs" class="md3-tabs hidden">
+      <button class="md3-tab active" onclick="showView('order-form')">
+        <span class="material-symbols-outlined">shopping_cart</span> New Order
+      </button>
+      <button class="md3-tab" onclick="showView('history-view')">
+        <span class="material-symbols-outlined">history</span> Order History
+      </button>
+      <button id="admin-tab" class="md3-tab hidden" onclick="showView('admin-view', true)">
+        <span class="material-symbols-outlined">settings</span> Admin
+      </button>
     </div>
     <script>console.log('CLIENT_CATALOG_DEBUG_<?= version ?>:', typeof PRODUCT_CATALOG !== 'undefined' ? PRODUCT_CATALOG : 'NOT LOADED');</script>
   </header>
@@ -113,18 +142,91 @@
       <p id="error-msg">Something went wrong.</p>
     </div>
 
+    <!-- Order History View -->
+    <div id="history-view" class="state-view hidden">
+      <h2 class="md3-headline-medium" style="margin-bottom: 24px;">Load Previous Order</h2>
+      <div style="max-width: 500px; margin: 0 auto; text-align: left;">
+        <label class="md3-body-small" style="display: block; margin-bottom: 8px; opacity: 0.7;">Select an order to
+          populate the form:</label>
+        <select id="order-selector" class="md3-select" onchange="handleOrderSelection(this.value)">
+          <option value="">-- Choose an Order --</option>
+        </select>
+        <p id="history-status" class="md3-body-small" style="margin-top: 12px; color: #888; text-align: center;"></p>
+      </div>
+    </div>
+
+    <!-- Admin Dashboard View -->
+    <div id="admin-view" class="state-view hidden">
+      <?!= include('admin_form'); ?>
+    </div>
+
     <!-- Order Form -->
     <form id="order-form" class="hidden">
 
-      <!-- Client Info (Editable) -->
-      <div id="client-info-container" style="display: flex; gap: 12px; margin-bottom: 24px;">
-        <div class="md3-text-field">
-          <input type="text" id="client-name-input" placeholder=" ">
-          <label>Company Name</label>
+      <!-- Client Info (Read-only display with update option) -->
+      <div id="client-info-container" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+        <div style="display: flex; gap: 12px;">
+          <div class="md3-text-field" style="flex:1;">
+            <input type="text" id="client-name-input" placeholder=" " readonly>
+            <label>Client Name</label>
+          </div>
+          <div class="md3-text-field" style="flex:1;">
+            <input type="text" id="client-address-input" placeholder=" " readonly>
+            <label>Delivery Address</label>
+          </div>
         </div>
-        <div class="md3-text-field">
-          <input type="text" id="client-address-input" placeholder=" ">
-          <label>Address</label>
+        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+          <button type="button" id="update-info-btn" class="md3-btn-outlined" onclick="showUpdateInfoModal()"
+            style="white-space: nowrap; height: 40px; padding: 0 16px; display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
+            Update My Info
+          </button>
+        </div>
+      </div>
+
+      <!-- Update Info Modal -->
+      <div id="update-info-modal" class="modal-overlay hidden" onclick="closeUpdateInfoModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+          <h3 class="md3-headline-small" style="margin-bottom: 20px;">Update My Information</h3>
+          <p class="md3-body-small" style="margin-bottom: 16px; color: #666;">
+            Submit your updated information for review. Changes will be applied after approval.
+          </p>
+          <div class="md3-text-field" style="margin-bottom: 16px;">
+            <input type="text" id="update-client-id" placeholder=" ">
+            <label>New Client ID</label>
+          </div>
+          <div class="md3-text-field" style="margin-bottom: 16px;">
+            <input type="text" id="update-client-name" placeholder=" ">
+            <label>Company Name</label>
+          </div>
+          <div
+            style="background:#f5f5f5; padding:16px; border-radius:8px; margin-bottom:24px; border:1px solid #e0e0e0;">
+            <label
+              style="font-size:12px; font-weight:bold; display:block; margin-bottom:12px; color: var(--md-sys-color-primary);">DELIVERY
+              ADDRESS</label>
+            <div class="md3-text-field" style="margin-bottom:12px;">
+              <input type="text" id="update-addr-street" placeholder=" ">
+              <label>Street Address</label>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+              <div class="md3-text-field">
+                <input type="text" id="update-addr-city" placeholder=" ">
+                <label>City</label>
+              </div>
+              <div class="md3-text-field">
+                <input type="text" id="update-addr-province" placeholder=" ">
+                <label>Province</label>
+              </div>
+            </div>
+            <div class="md3-text-field" style="max-width:200px;">
+              <input type="text" id="update-addr-postal" placeholder=" ">
+              <label>Postal Code</label>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button type="button" class="md3-btn-outlined" onclick="closeUpdateInfoModal()">Cancel</button>
+            <button type="button" class="md3-btn-filled" onclick="submitInfoUpdate()">Update</button>
+          </div>
         </div>
       </div>
 
@@ -133,11 +235,16 @@
         <!-- Products injected here -->
       </div>
 
+      <!-- Special Instructions (at bottom of form) -->
+      <div style="margin-top: 24px; margin-bottom: 16px;">
+        <div class="md3-text-field">
+          <input type="text" id="client-comments-input" placeholder=" ">
+          <label>Special Instructions / Comments</label>
+        </div>
+      </div>
+
       <!-- FAB / Calculate Button -->
       <div class="fab-container">
-        <div class="total-preview">
-          <span>Total Pieces: <strong id="total-pieces">0</strong></span>
-        </div>
         <button type="button" id="submit-btn" class="md3-btn-filled" onclick="reviewOrder()">
           Checkout
         </button>
@@ -184,39 +291,38 @@
   <script>
     // Inject Template Variables
     window.initialClientId = <?!= JSON.stringify(clientId) ?>;
+    window.editOrderId = <?!= JSON.stringify(editOrderId) ?>;
+    window.prefillData = <?!= JSON.stringify(prefillData) ?>;
     window.categorySettings = <?!= JSON.stringify(categorySettings) ?>;
+    window.appConfig = <?!= JSON.stringify(appConfig) ?>;
+    window.appStyles = <?!= JSON.stringify(appStyles) ?>;
 
     /**
-     * Immediate Theme Application
+     * Immediate Theme Application (from APP_STYLES named ranges)
      */
     (function () {
-      const getContrastYIQ = (hex) => {
-        if (!hex) return 'white';
-        const r = parseInt(hex.substr(1, 2), 16);
-        const g = parseInt(hex.substr(3, 2), 16);
-        const b = parseInt(hex.substr(5, 2), 16);
-        return (((r * 299) + (g * 587) + (b * 114)) / 1000 >= 190) ? 'black' : 'white';
-      };
+      const styles = window.appStyles || {};
+      const root = document.documentElement;
 
-      const main = window.categorySettings ?
-        (window.categorySettings['main'] || window.categorySettings['Main'] || window.categorySettings['MAIN']) : null;
-
-      if (main) {
-        const color = (typeof main === 'object') ? main.color : main;
-        let text = (typeof main === 'object') ? main.textColor : '';
-        if (!text || text === '#000000') text = getContrastYIQ(color);
-
-        const root = document.documentElement;
-        root.style.setProperty('--md-sys-color-primary', color);
-        root.style.setProperty('--md-sys-color-on-primary', text);
+      if (styles.primaryColor) {
+        root.style.setProperty('--md-sys-color-primary', styles.primaryColor);
+        root.style.setProperty('--md-sys-color-on-primary', styles.primaryTextColor || '#ffffff');
+      }
+      if (styles.secondaryColor) {
+        root.style.setProperty('--md-sys-color-secondary', styles.secondaryColor);
+        root.style.setProperty('--md-sys-color-on-secondary', styles.secondaryTextColor || '#ffffff');
       }
     })();
   </script>
   <?!= include('js'); ?>
+  <?!= include('admin_logic'); ?>
   <!-- Version Footer -->
   <div style="text-align: center; color: #aaa; font-size: 12px; padding: 20px;">
-    v1.6.06 [STABLE]
+    <?= version ?> [STABLE]
   </div>
+
+  <!-- Snackbar Toast -->
+  <div id="snackbar" class="md3-snackbar"></div>
 </body>
 
 </html>

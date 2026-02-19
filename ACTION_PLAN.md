@@ -7,12 +7,22 @@
 
 ## Version History
 
-### v1.8.00 (Current)
-- [x] **Hybrid Variation & Multi-Split Logic**
-    - [x] Implemented per-variation Format selection (Single, Carton, Multi).
-    - [x] Created "Split-on-Submit" macro for Multi rows (Auto-gen Single + Case).
-    - [x] Redesigned Variation Sidebar for maximum spacing (24px gaps).
-    - [x] Synchronized version tagging across all project files (index, sidebar, config).
+### v1.8.31 (Current)
+- [x] **Critical Fix: HTML Leakage**
+    - [x] Repaired corrupted category rendering logic that was leaking raw HTML code (`< div style=...`) into the UI.
+- [x] **UI Logic Overhaul: View Persistence**
+    - [x] Fixed "Overlapping Views" bug where the Order Form would force itself visible while the Admin was still on the History view.
+    - [x] Ensured that background data fetching (products) respects the currently selected navigation tab.
+- [x] **Logic Hardening: Robust Numeric Parsing**
+    - [x] Upgraded server-side filtering to sanitize currency strings (`$1,115`) during the initial data scan. This ensures orders with special formatting are never skipped.
+
+### v1.8.30 (History)
+- [x] **New Admin Workflow: Order Selector Dropdown**
+    - [x] Replaced the card-based list with a clean Dropdown Selector (`Load Previous Order`).
+
+### v1.8.28 (History)
+
+### v1.8.27 (History)
 - [ ] **Next Steps: Production Validation**
     - [ ] Perform batch upload of Multi-format products.
     - [ ] Verify SKU generation and price auto-calculation in the spreadsheet.

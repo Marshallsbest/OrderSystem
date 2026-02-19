@@ -4,17 +4,62 @@
      */
     let PRODUCT_CATALOG = [];
     let CURRENT_CLIENT = null;
+    let IS_ADMIN = false;
+    let ADMIN_KEY = ""; // Fetched from server via ADMIN_LOGIN named range
     const CLIENT_ID = window.initialClientId; // Defined in index.html
+
+
+    /**
+     * Global Failure Handler for google.script.run calls
+     */
+    function onFailure(error) {
+        console.error("[onFailure] Server error:", error);
+        showToast("Server Error: " + (error.message || error), 'error');
+    }
+
+    /**
+     * Show Toast/Snackbar Notification (replaces alert())
+     * @param {string} message - The message to display
+     * @param {string} type - 'success', 'error', or '' for default
+     * @param {number} duration - How long to show (ms), default 4000
+     */
+    function showToast(message, type = '', duration = 4000) {
+        const snackbar = document.getElementById('snackbar');
+        if (!snackbar) {
+            // Fallback to alert if snackbar element not found
+            alert(message);
+            return;
+        }
+
+        snackbar.textContent = message;
+        snackbar.className = 'md3-snackbar';
+        if (type) snackbar.classList.add(type);
+
+        // Show
+        setTimeout(() => snackbar.classList.add('show'), 10);
+
+        // Hide after duration
+        setTimeout(() => {
+            snackbar.classList.remove('show');
+        }, duration);
+    }
+
+    /**
+     * Helper: Normalize category names to match server-side logic
+     * Must match superNormalize in Config.gs
+     */
+    function superNormalize(s) {
+        return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+    }
 
     /**
      * Helper: Convert string to safe CSS Class
      */
     function toCssClass(str) {
         if (!str) return 'cat-unknown';
-        return 'cat-' + str.toLowerCase()
-            .replace(/[^a-z0-9]/g, '-') // Replace non-alphanumeric with hyphen
-            .replace(/-+/g, '-')        // Collapse multiple hyphens
-            .replace(/^-|-$/g, '');     // Trim hyphens
+        // USE superNormalize to ensure plural versions (Darts) match singular keys (Dart)
+        const norm = superNormalize(str);
+        return 'cat-' + norm;
     }
 
     /**
@@ -45,6 +90,9 @@
     window.onload = function () {
         console.log("Window loaded");
 
+        // Apply branding immediately (Login screen needs it too)
+        applyCategoryColorsVisuals();
+
         if (!CLIENT_ID) {
             // No ID in URL -> Show Login View
             document.getElementById('loading').classList.add('hidden');
@@ -67,22 +115,10 @@
             }
         });
 
-        // 1. Apply Main Color if exists
-        if (window.categorySettings && window.categorySettings['Main']) {
-            const mainColor = window.categorySettings['Main'];
-            document.documentElement.style.setProperty('--md-sys-color-primary', mainColor);
-            // Also apply to App Bar directly to be safe
-            const appBar = document.querySelector('.md3-top-app-bar');
-            if (appBar) appBar.style.backgroundColor = mainColor;
-        }
-
         // 2. Fetch Client Data
         fetchClientData(CLIENT_ID);
     };
 
-    /**
-     * Handle Manual Login
-     */
     function handleManualLogin() {
         const input = document.getElementById('manual-client-id');
         const id = input.value.trim();
@@ -92,13 +128,52 @@
             return;
         }
 
+        // Check for Admin Key (from ADMIN_LOGIN named range via appConfig)
+        const adminKey = (window.appConfig && window.appConfig.ADMIN_KEY) || "ADMIN123";
+        if (id.toUpperCase() === adminKey.toUpperCase()) {
+            IS_ADMIN = true;
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('loading').classList.remove('hidden');
+
+            // Admins don't have a specific client record initially
+            onAdminLoginSuccess();
+            return;
+        }
+
+
         // Hide Login, Show Loading
         document.getElementById('login-view').classList.add('hidden');
         document.getElementById('loading').classList.remove('hidden');
 
         // Update Global and Fetch
-        // We act as if it came from URL
         fetchClientData(id);
+    }
+
+    function onAdminLoginSuccess() {
+        IS_ADMIN = true;
+        document.getElementById('nav-tabs').classList.remove('hidden');
+        // Show Admin Tab
+        document.getElementById('admin-tab').classList.remove('hidden');
+
+        document.getElementById('loading').classList.add('hidden');
+        showView('history-view'); // Default to history for admins
+
+        // 1. Fetch Products for Admin (to populate "New Order" tab)
+        google.script.run
+            .withSuccessHandler(onProductsSuccess)
+            .withFailureHandler(onFailure)
+            .getProductCatalog();
+
+        // 2. Fetch all orders for admin
+        google.script.run
+            .withSuccessHandler(renderOrderHistory)
+            .withFailureHandler(onFailure)
+            .getOrdersByClient('');
+
+        // 3. Init Admin Form (Lazy load or eager?)
+        if (typeof initAdminModule === 'function') {
+            initAdminModule();
+        }
     }
 
     function showLoginError(msg) {
@@ -144,9 +219,18 @@
             return;
         }
 
+        // DEBUG: Log full client object to see what server returned
+        console.log('[onClientDataSuccess] Full client object:', client);
+        console.log('[onClientDataSuccess] Client keys:', Object.keys(client));
+        console.log('[onClientDataSuccess] allowedSections from server:', client.allowedSections);
+
         CURRENT_CLIENT = client;
         document.getElementById('client-name-input').value = client['Name'] || "";
         document.getElementById('client-address-input').value = client['Address'] || "";
+
+        // Client View: No Tabs, just the form
+        document.getElementById('nav-tabs').classList.add('hidden');
+        IS_ADMIN = false;
 
         // 2. Fetch Products
         // alert("Fetching Products...");
@@ -156,19 +240,233 @@
             .getProductCatalog();
     }
 
+    /**
+     * View Management
+     */
+    function showView(viewId) {
+        // Toggle Active Views
+        document.querySelectorAll('.state-view, form').forEach(el => {
+            if (el.id === 'loading' || el.id === 'error' || el.id === 'bubble-overlay' || el.id === 'details-bubble' || el.id === 'success') return;
+            el.classList.add('hidden');
+        });
+
+        const target = document.getElementById(viewId);
+        if (target) target.classList.remove('hidden');
+
+        // Toggle Tab States
+        document.querySelectorAll('.md3-tab').forEach(tab => {
+            const onClick = tab.getAttribute('onclick');
+            if (onClick && onClick.includes(viewId)) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+        });
+
+        // Specific View Logic
+        if (viewId === 'order-form') {
+            document.getElementById('collapse-fab').classList.remove('hidden');
+            document.getElementById('header-total').classList.remove('hidden');
+        } else {
+            document.getElementById('collapse-fab').classList.add('hidden');
+            document.getElementById('header-total').classList.add('hidden');
+        }
+    }
+
+    /**
+     * History Logic
+     */
+    function fetchOrderHistory(clientName) {
+        if (!clientName) return;
+        google.script.run
+            .withSuccessHandler(renderOrderHistory)
+            .getOrdersByClient(clientName);
+    }
+
+    function renderOrderHistory(orders) {
+        console.log("[renderOrderHistory] Called with:", orders ? orders.length : 0, "orders");
+
+        let selector = document.getElementById('order-selector');
+        let status = document.getElementById('history-status');
+
+        // Retry once if selector not found (timing issue)
+        if (!selector) {
+            console.warn("[renderOrderHistory] Selector not found, retrying in 500ms...");
+            setTimeout(() => {
+                selector = document.getElementById('order-selector');
+                status = document.getElementById('history-status');
+                if (selector) {
+                    console.log("[renderOrderHistory] Retry successful, populating now.");
+                    populateOrderDropdown(selector, status, orders);
+                } else {
+                    console.error("[renderOrderHistory] Retry failed. #order-selector does not exist.");
+                    alert("Error: Order selector element not found. Please refresh.");
+                }
+            }, 500);
+            return;
+        }
+
+        populateOrderDropdown(selector, status, orders);
+    }
+
+    function populateOrderDropdown(selector, status, orders) {
+        // Reset
+        selector.innerHTML = '<option value="">-- Choose an Order --</option>';
+
+        if (!orders || orders.length === 0) {
+            if (status) status.textContent = "No previous orders found.";
+            return;
+        }
+
+        if (status) status.textContent = `Found ${orders.length} orders.`;
+
+        orders.forEach(order => {
+            const dateStr = new Date(order.timestamp).toLocaleDateString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric'
+            });
+            const clientInfo = IS_ADMIN ? `(${order.clientName}) ` : '';
+            const option = document.createElement('option');
+            option.value = order.id;
+            const stateLabel = order.state ? ` [${order.state.toUpperCase()}]` : '';
+            option.textContent = `${clientInfo}${order.id}${stateLabel} - ${dateStr} - $${Number(order.total || 0).toFixed(2)}`;
+            selector.appendChild(option);
+        });
+
+        console.log("[populateOrderDropdown] Added", orders.length, "options to selector.");
+    }
+
+    function handleOrderSelection(orderId) {
+        if (!orderId) return;
+        editHistoricalOrder(orderId);
+    }
+
+    function editHistoricalOrder(orderId) {
+        // Show Loading
+        const loader = document.getElementById('loading');
+        const loadText = document.getElementById('loading-text');
+        if (loadText) loadText.textContent = "Loading Order Details...";
+        loader.classList.remove('hidden');
+
+        google.script.run
+            .withSuccessHandler(data => {
+                console.log("[editHistoricalOrder] Received data:", data);
+                if (!data) {
+                    alert("Order data not found or row is empty. (v1.8.51)");
+                    loader.classList.add('hidden');
+                    return;
+                }
+
+                window.prefillData = data;
+                window.editOrderId = data.id;
+
+                // FIX v1.8.45: Use class selector, log what we find
+                const existingInputs = document.querySelectorAll('input.qty-input');
+                console.log("[editHistoricalOrder] Found inputs:", existingInputs.length);
+                if (existingInputs.length > 0) {
+                    // Products already rendered, prefill now
+                    prefillOrderForm(data);
+                } else {
+                    // Products not yet rendered, onProductsSuccess will handle prefill
+                    console.log("[editHistoricalOrder] Deferring prefill - products not rendered yet");
+                }
+
+                showView('order-form');
+                loader.classList.add('hidden');
+            })
+            .withFailureHandler(err => {
+                alert("Error loading order: " + err.message);
+                loader.classList.add('hidden');
+            })
+            .getOrderById(orderId);
+    }
+
     function onProductsSuccess(products) {
         PRODUCT_CATALOG = products;
 
+        // Fetch Admin Key from config if available (Prioritize appConfig over categorySettings)
+        window.ADMIN_KEY = (window.appConfig && window.appConfig.ADMIN_KEY) ||
+            (window.categorySettings?.main?.adminKey) ||
+            "ADMIN123";
+
+        // Filter products based on client section permissions (non-admins only)
+        let filteredProducts = products;
+        if (!IS_ADMIN && CURRENT_CLIENT && CURRENT_CLIENT.allowedSections) {
+            const allowedSections = CURRENT_CLIENT.allowedSections;
+            console.log('[ProductFilter] Client allowed sections:', allowedSections);
+
+            filteredProducts = products.filter(product => {
+                const productCategory = superNormalize(product.category || '');
+                const catSettings = window.categorySettings ? window.categorySettings[productCategory] : null;
+                const productSection = catSettings ? (catSettings.section || '').toUpperCase() : '';
+
+                // Allow if no section defined (backward compatibility) or if section is in allowed list
+                if (!productSection) return true;
+                return allowedSections.includes(productSection);
+            });
+
+            console.log(`[ProductFilter] Filtered ${products.length} -> ${filteredProducts.length} products`);
+        }
+
         try {
-            renderProducts(products);
+            renderProducts(filteredProducts);
+            if (window.prefillData) {
+                prefillOrderForm(window.prefillData);
+            }
         } catch (e) {
             console.error("Render Error:", e);
-            alert("Error rendering products: " + e.message);
         }
 
         document.getElementById('loading').classList.add('hidden');
-        document.getElementById('order-form').classList.remove('hidden');
-        document.getElementById('collapse-fab').classList.remove('hidden'); // Show FAB
+
+        // v1.8.31 FIX: Only show the form if we aren't an admin (direct entry) 
+        // OR if we are explicitly on the form view.
+        const currentView = document.querySelector('.md3-tab.active')?.getAttribute('onclick');
+        const isOnForm = currentView ? currentView.includes('order-form') : true;
+
+        if (!IS_ADMIN || isOnForm) {
+            document.getElementById('order-form').classList.remove('hidden');
+            document.getElementById('collapse-fab').classList.remove('hidden');
+        }
+    }
+    /**
+     * Prefill Order Form from Data
+     */
+    function prefillOrderForm(data) {
+        if (!data || !data.items) {
+            console.warn("[prefillOrderForm] No items to prefill.");
+            return;
+        }
+
+        console.log("Prefilling Order Form...", data);
+
+        // DEBUG v1.8.45: Input IDs are just the SKU (no qty- prefix)
+        const allInputs = document.querySelectorAll('input.qty-input');
+        const availableSKUs = Array.from(allInputs).map(el => el.id);
+        console.log("[prefillOrderForm] Available SKUs in form:", availableSKUs.slice(0, 20), "... total:", availableSKUs.length);
+        console.log("[prefillOrderForm] SKUs from order:", Object.keys(data.items).map(s => s.replace(/^@/, '')));
+
+        // 1. Populate Client Info
+        if (data.clientName) document.getElementById('client-name-input').value = data.clientName;
+        if (data.clientComments) document.getElementById('client-comments-input').value = data.clientComments;
+
+        // 2. Populate Quantities
+        Object.keys(data.items).forEach(sku => {
+            const item = data.items[sku];
+            // FIX v1.8.45: Strip @ prefix, input IDs are just the SKU (no qty- prefix)
+            const normalizedSku = sku.replace(/^@/, '');
+            const input = document.getElementById(normalizedSku);
+            console.log(`[prefillOrderForm] SKU: ${sku} -> ${normalizedSku}, Input found:`, !!input);
+            if (input) {
+                input.value = item.qty;
+                // Dispatch input event to trigger any listeners
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
+
+        // 3. Recalculate Totals
+        if (typeof calculateTotal === 'function') {
+            calculateTotal();
+        }
     }
 
     /**
@@ -180,23 +478,11 @@
     }
 
     /**
-     * Render Product List
+     * Helper: Apply Category Colors and Visuals based on settings
      */
-    /**
-     * Render Product List grouped by Category
-     */
-    /**
-     * Render Product List grouped by Category
-     * Supports:
-     * 1. Matrix Groups (e.g. SODA SQ)
-     * 2. Compact Tables (Standard items)
-     */
-    function renderProducts(products) {
-        const container = document.getElementById('product-list');
-        container.innerHTML = "";
+    function applyCategoryColorsVisuals() {
+        if (!window.categorySettings) return;
 
-        // --- DYNAMIC STYLE GENERATION (User Request: Class Based) ---
-        // Create a style block for category colors
         const styleId = 'dynamic-cat-syles';
         let styleBlock = document.getElementById(styleId);
         if (!styleBlock) {
@@ -206,31 +492,69 @@
         }
 
         let cssRules = "";
-        if (window.categorySettings) {
-            Object.keys(window.categorySettings).forEach(cat => {
-                const setting = window.categorySettings[cat];
-                const color = (typeof setting === 'object' && setting.color) ? setting.color : (typeof setting === 'string' ? setting : null);
 
-                const cleanClass = toCssClass(cat);
-                if (cleanClass && color) {
-                    const textColor = getContrastYIQ(color);
-                    // 1. Apply Color to Category Header ONLY when OPEN
-                    cssRules += `.${cleanClass}[open] > .category-summary { background-color: ${color} !important; color: ${textColor} !important; }\n`;
-                    // 2. Add Top Radius when Expanded (or always, as requested for "top of them")
-                    cssRules += `.${cleanClass}[open] > .category-summary { border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }\n`;
-                    // 3. Round bottom if closed
-                    cssRules += `.${cleanClass}:not([open]) > .category-summary { border-radius: 12px; transition: border-radius 0.2s ease; }\n`;
+        // App Theme Override from APP_STYLES named ranges
+        const styles = window.appStyles || {};
+        if (styles.primaryColor) {
+            console.log("DEBUG: Applying App Styles:", styles);
 
-                    // Matrix Header Background (if used)
-                    cssRules += `.${cleanClass} .matrix-header-row { background-color: ${color} !important; color: ${textColor} !important; }\n`;
+            // Core theme variables
+            cssRules += `:root { \n`;
+            cssRules += `  --md-sys-color-primary: ${styles.primaryColor} !important; \n`;
+            cssRules += `  --md-sys-color-on-primary: ${styles.primaryTextColor || '#ffffff'} !important; \n`;
+            cssRules += `  --md-sys-color-secondary: ${styles.secondaryColor || '#625b71'} !important; \n`;
+            cssRules += `  --md-sys-color-on-secondary: ${styles.secondaryTextColor || '#ffffff'} !important; \n`;
+            cssRules += `} \n`;
 
-                    // Set variable for generic usage
-                    cssRules += `.${cleanClass} { --category-color: ${color}; }\n`;
-                }
-            });
+            // Forced styles for headers and primary buttons
+            cssRules += `.app-header, .md3-top-app-bar, .md3-title-large, .total-amount { color: var(--md-sys-color-on-primary) !important; } \n`;
+            cssRules += `.primary-btn { background-color: var(--md-sys-color-primary) !important; color: var(--md-sys-color-on-primary) !important; } \n`;
+
+            // Header Layout Spacing Fix
+            cssRules += `.app-header-content { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; } \n`;
+            cssRules += `#header-total { margin-left: auto; margin-right: 32px; font-variant-numeric: tabular-nums; } \n`;
         }
-        console.log("DEBUG: Generated CSS Rules:", cssRules);
-        styleBlock.textContent = cssRules;
+
+        Object.keys(window.categorySettings).forEach(normalizedKey => {
+            const setting = window.categorySettings[normalizedKey];
+            const color = (typeof setting === 'object' && setting.color) ? setting.color : (typeof setting === 'string' ? setting : null);
+            const cleanClass = 'cat-' + normalizedKey;
+
+            if (cleanClass && color) {
+                const textColor = (typeof setting === 'object' && setting.textColor && setting.textColor !== '#000000') ? setting.textColor : getContrastYIQ(color);
+
+                // Color ONLY in OPEN state
+                cssRules += `.${cleanClass} [open] > .category-summary { background-color: ${color} !important; color: ${textColor} !important; } \n`;
+
+                // Border/Radius logic for Open State
+                cssRules += `.${cleanClass} [open] > .category-summary { border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; } \n`;
+                cssRules += `.${cleanClass}:not([open]) > .category-summary { border-radius: 12px; transition: border-radius 0.2s ease; } \n`;
+
+                // Content elements
+                cssRules += `.${cleanClass} .matrix-header-row { background-color: ${color} !important; color: ${textColor} !important; } \n`;
+                cssRules += `.${cleanClass} { --category-color: ${color}; } \n`;
+            }
+        });
+
+        if (styleBlock) styleBlock.textContent = cssRules;
+    }
+
+    /**
+     * Render Product List grouped by Category
+     * Supports:
+     * 1. Matrix Groups (e.g. SODA SQ)
+     * 2. Compact Tables (Standard items)
+     */
+    function renderProducts(products) {
+        // DEBUG: Check if product exists in raw list
+        console.log(`[DEBUG] renderProducts received ${products.length} items`);
+        const debugProd = products.find(p => String(p.name).toLowerCase().includes("pulse x") || String(p.variation).toLowerCase().includes("pulse x"));
+        console.log("[DEBUG] Searching for 'Pulse X' in raw list:", debugProd);
+
+        applyCategoryColorsVisuals(); // Apply styles first
+
+        const container = document.getElementById('product-list');
+        container.innerHTML = "";
 
         // 0. Normalize Data
         const normalizedProducts = products.map(p => {
@@ -253,12 +577,19 @@
             groupedByCat[cat].push(p);
         });
 
-        // SORTING LOGIC: Respect Numeric Order from Settings (Col H)
-        let categories = Object.keys(groupedByCat);
+        // 2. Filter and Sort Categories
+        let categories = Object.keys(groupedByCat).filter(cat => {
+            const lowCat = cat.toLowerCase();
+            return lowCat !== "main" && lowCat !== "category" && lowCat !== "category name";
+        });
 
         categories.sort((a, b) => {
-            const setA = window.categorySettings && window.categorySettings[a];
-            const setB = window.categorySettings && window.categorySettings[b];
+            // Normalize category names to match keys in categorySettings
+            const normalizedA = superNormalize(a);
+            const normalizedB = superNormalize(b);
+
+            const setA = window.categorySettings && window.categorySettings[normalizedA];
+            const setB = window.categorySettings && window.categorySettings[normalizedB];
 
             // Default to 999 if no order set
             const orderA = (setA && typeof setA.order === 'number') ? setA.order : 999;
@@ -275,30 +606,42 @@
         categories.forEach(cat => {
             const catDetails = document.createElement('details');
             catDetails.open = false; // Default closed
-            // Add dynamic class to Top Level Category Header
+            // Add dynamic class using normalization to ensure it matches Settings
             const catClass = toCssClass(cat);
             catDetails.className = `category-details ${catClass}`;
 
             const catSummary = document.createElement('summary');
             catSummary.className = "md3-headline-medium category-summary";
-            // Use innerHTML to add Subtotal Span
+            const catHasSale = (groupedByCat[cat] || []).some(p => p.onSale);
             catSummary.innerHTML = `
-                <span style="flex:1;">${cat}</span>
-                <span class="cat-subtotal" style="font-size:0.8em; opacity:0.9; margin-left:12px; font-weight:bold; display:none;">$0.00</span>
+                <div style="flex: 1; display: flex; align-items: center;">
+                    <!-- Left placeholder for balance -->
+                    <span class="cat-subtotal-left" style="font-size:0.8em; opacity:0; visibility:hidden;">$0.00</span>
+                </div>
+                
+                <span style="flex: 0 1 auto; text-align: center; white-space: nowrap;">
+                    ${cat}
+                </span>
+
+                <div style="flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+                    ${catHasSale ? '<span class="sale-badge">SALE</span>' : ''}
+                    <span class="cat-subtotal" style="font-size:0.8em; opacity:0.9; font-weight:bold; display:none;">$0.00</span>
+                </div>
             `;
             // Ensure Flex display for spacing
             catSummary.style.display = "flex";
             catSummary.style.justifyContent = "space-between";
             catSummary.style.alignItems = "center";
+            catSummary.style.textAlign = "center";
             catDetails.appendChild(catSummary);
 
             const catContent = document.createElement('div');
             catContent.className = "category-content";
 
             const groups = groupProductsDynamically(groupedByCat[cat]);
-            const sortedGroupNames = Object.keys(groups).sort();
+            const groupNames = Object.keys(groups); // NO SORT to keep sheet order
 
-            sortedGroupNames.forEach(baseName => {
+            groupNames.forEach(baseName => {
                 const group = groups[baseName];
                 const isMatrix = checkMatrixEligibility(group, baseName);
 
@@ -310,21 +653,14 @@
                     const hasVar2 = group.some(p => p.variation2);
 
                     if (hasVar2) {
-                        // Logic for Variation 2 Columns
-                        const uniqueVar2 = [...new Set(group.map(p => p.variation2).filter(v => v))].sort();
+                        // Logic for Variation 2 Columns - NO SORT to keep sheet order
+                        const uniqueVar2 = [...new Set(group.map(p => p.variation2).filter(v => v))];
                         colDefs = uniqueVar2.map(v2Name => {
-                            // Find a representative price? 
-                            // Prices might vary by Var2, so we just pass the label. 
-                            // The cell render function will look up the specific SKU price using Var1 + Var2.
                             return { label: v2Name || "Std", price: "", name: v2Name, isVar2: true };
                         });
                     } else {
-                        // Classic Logic (Name-based Columns)
-                        const allNames = [...new Set(group.map(p => p.name))].sort((a, b) => {
-                            const numA = parseInt(a.replace(/\D/g, '')) || 0;
-                            const numB = parseInt(b.replace(/\D/g, '')) || 0;
-                            return numA - numB;
-                        });
+                        // Classic Logic (Name-based Columns) - NO SORT to keep sheet order
+                        const allNames = [...new Set(group.map(p => p.name))];
                         colDefs = allNames.map(name => {
                             const regex = new RegExp("^" + escapeRegex(baseName), "i");
                             let label = name.replace(regex, "").trim();
@@ -335,11 +671,23 @@
                             return { label: label, price: price, name: name, isVar2: false };
                         });
                     }
+                    // POPULATE STICKY HEADERS FOR MATRIX
+                    headerColsHtml = colDefs.map(col => `
+                <div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px;">
+                    <span class="qty-header-label" style="font-size:11px; font-weight:bold;">${col.label}</span>
+                </div>
+                `).join("");
                 } else {
                     // Standard / Compact Logic
-                    // Check for Case existence and common units
-                    const caseProducts = group.filter(p => (parseInt(p.unitsPerCase) || 1) > 1);
+                    const caseProducts = group.filter(p => p.hasCase);
                     const showCase = caseProducts.length > 0;
+
+                    // Identify common spec (e.g. "50mg") to display in header
+                    const uniqueSpecs = [...new Set(group.map(p => String(p.variation2 || "").trim()).filter(v => v && v.toLowerCase() !== "undefined"))];
+                    const commonSpec = uniqueSpecs.length === 1 ? uniqueSpecs[0] : "";
+                    if (commonSpec) {
+                        headerColsHtml += `<div class="col-data" style="margin-right:auto; padding-left:12px; color:inherit; font-size:12px; font-weight:900; opacity:0.9;">${commonSpec}</div>`;
+                    }
 
                     let caseHeaderLabel = "Case";
                     // Check if all cases have same size
@@ -347,19 +695,43 @@
                         const firstSize = parseInt(caseProducts[0].unitsPerCase) || 1;
                         const allSame = caseProducts.every(p => (parseInt(p.unitsPerCase) || 1) === firstSize);
                         if (allSame) {
-                            caseHeaderLabel += ` <br><span style="font-size:10px; opacity:0.8;">(Box ${firstSize})</span>`;
+                            caseHeaderLabel += `<br><span style="font-size:10px; opacity:0.8;">(Box ${firstSize})</span>`;
                         }
                     }
 
-                    headerColsHtml += `<div class="col-data"><span class="qty-header-label">Qty</span></div>`;
+                    // NEW: Prices Aligned Above Columns
+                    const leaderP = group.find(p => Number(p.price) > 0) || group[0];
+                    const pSingleLeader = group.find(p => !p.hasCase && Number(p.price) > 0) || group.find(p => !p.hasCase) || leaderP;
 
-                    // Display actual price if consistent, or range? user asked for "the price"
-                    // We'll use the leader's price. If on sale, show sale price? Let's check logic.
-                    const leaderP = group[0];
-                    const leaderPriceVal = Number(leaderP.salePrice) > 0 ? Number(leaderP.salePrice) : Number(leaderP.price);
+                    const buildPriceHeader = (p, subLabel) => {
+                        const isSaleOn = !!p.onSale;
+                        const hasDisc = isSaleOn && (Number(p.salePrice) > 0 && Number(p.salePrice) < Number(p.price));
+                        const reg = Number(p.price).toFixed(2);
+                        const sale = Number(p.salePrice).toFixed(2);
 
-                    headerColsHtml += `<div class="col-data"><span class="price-header-label">$${leaderPriceVal.toFixed(2)}</span></div>`;
-                    if (showCase) headerColsHtml += `<div class="col-data"><span class="case-header-label">${caseHeaderLabel}</span></div>`;
+                        let cell = `<div class="col-data">`;
+                        if (hasDisc) {
+                            cell += `<span class="price-header-label strikethrough" style="text-decoration:line-through; font-size:9px; opacity:0.7;">$${reg}</span>`;
+                            cell += `<span class="price-header-label sale-price-highlight" style="font-weight:900;">$${sale}</span>`;
+                        } else {
+                            const displayP = isSaleOn ? p.salePrice : p.price;
+                            cell += `<span class="price-header-label">$${Number(displayP).toFixed(2)}</span>`;
+                        }
+                        if (subLabel) {
+                            cell += `<div style="font-size:9px; opacity:0.6; line-height:1; margin-top:2px;">${subLabel}</div>`;
+                        }
+                        cell += `</div>`;
+                        return cell;
+                    };
+
+                    // 1. Single Price Column Header
+                    headerColsHtml += buildPriceHeader(pSingleLeader, "Single");
+
+                    // 2. Case Price Column Header (if applicable)
+                    if (showCase) {
+                        const pCaseLeader = group.find(p => p.hasCase && Number(p.price) > 0) || group.find(p => p.hasCase) || leaderP;
+                        headerColsHtml += buildPriceHeader(pCaseLeader, caseHeaderLabel);
+                    }
                 }
 
                 // Determine Sticky
@@ -371,53 +743,70 @@
                 // ASSIGN DYNAMIC CATEGORY CLASS
                 const catClass = toCssClass(cat);
                 prodDetails.className = `product-group-details mb-3 ${catClass}`;
-                // REMOVED handleToggle causing ReferenceError - relying on initAccordionAnimation
-                // prodDetails.ontoggle = (e) => handleToggle(e, prodDetails);
 
                 const prodSummary = document.createElement('summary');
                 prodSummary.className = "product-group-header";
                 if (!isSticky) prodSummary.classList.add('no-sticky');
 
                 // MAIN FLEX HEADER
-                // Determine Header Color
-                // 1. Try first product in group for specific override
+                // Determine Header Color (Directive v1.8.17: Comprehensive White Filtering)
                 const leader = group[0];
-                const headerColor = leader.backgroundColor ? leader.backgroundColor : "";
-                const headerTextColor = leader.textColor ? leader.textColor : "";
+                const gColor = String(leader.groupColor || "").trim().toLowerCase();
+                const bColor = String(leader.backgroundColor || "").trim().toLowerCase();
 
-                // Color Logic: Use only when expanded
+                const isWhite = (c) => (c === "#ffffff" || c === "#fff" || c === "white" || c === "transparent");
+
+                let headerColor = "";
+                if (gColor && !isWhite(gColor)) headerColor = leader.groupColor;
+                else if (bColor && !isWhite(bColor)) headerColor = leader.backgroundColor;
+
+                const headerTextColor = String(leader.groupTextColor || leader.textColor || "").trim();
+
+                // Final Header Color: 1. Group Override, 2. Category Color, 3. Neutral Default
+                const catSet = window.categorySettings ? window.categorySettings[superNormalize(cat)] : null;
+                const finalHeaderColor = headerColor || (catSet ? catSet.color.trim() : "#f8f9fa");
+
                 const groupClass = 'prod-' + escapeRegex(baseName).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
                 prodDetails.classList.add(groupClass);
 
-                if (headerColor) {
-                    const dynamicStyle = document.getElementById('dynamic-cat-syles');
-                    if (dynamicStyle) {
-                        // Apply color ONLY when open, with Contrast Text or Explicit Text Color
-                        // Target PARENT summary for proper full-width background
-                        const textColor = headerTextColor ? headerTextColor : getContrastYIQ(headerColor);
-                        dynamicStyle.textContent += `.${groupClass}[open] > summary { background-color: ${headerColor} !important; }\n`;
-                        dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content { background-color: transparent !important; color: ${textColor} !important; }\n`;
-                        dynamicStyle.textContent += `.${groupClass}[open] > summary .header-content a { color: ${textColor} !important; }\n`;
-                    }
+                const dynamicStyle = document.getElementById('dynamic-cat-syles');
+                if (dynamicStyle) {
+                    const textColor = (headerTextColor && headerTextColor !== '#000000') ? headerTextColor : getContrastYIQ(finalHeaderColor);
+
+                    // Directive: Headers should have a shadow when open (v1.8.07)
+                    dynamicStyle.textContent += `.${groupClass}[open] > summary { background-color: ${finalHeaderColor} !important; color: ${textColor} !important; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important; } \n`;
+                    dynamicStyle.textContent += `.${groupClass}[open] > summary.header-content { color: ${textColor} !important; } \n`;
+                    dynamicStyle.textContent += `.${groupClass}[open] > summary.header-content a { color: ${textColor} !important; } \n`;
+                }
+
+                // --- DATA INTEGRITY CHECK ---
+                const varCounts = group.map(p => [p.variation, p.variation2, p.variation3, p.variation4].filter(v => v && String(v).trim() !== "").length);
+                const isConsistent = varCounts.every(v => v === varCounts[0]);
+                let integrityWarning = "";
+                if (!isConsistent) {
+                    integrityWarning = `<span class="material-symbols-outlined" style="color:#D32F2F; font-size:16px; vertical-align:middle; cursor:help;" title="Data Inconsistency Detected: Variations are not uniform across this group. Contact Admin.">warning</span>`;
                 }
 
                 prodSummary.innerHTML = `
-                    <div class="header-content grid-header-row">
-                        <span class="prod-title col-name">
+                <div class="header-content grid-header-row">
+                        <span class="prod-title col-name" style="font-size: 1.1em; font-weight: 700; font-family: var(--md-ref-typeface-brand), sans-serif;">
+                            ${integrityWarning}
                             ${baseName}
-                            ${(leader.image || leader.description) ?
-                        `<a href="#" onclick="showDetails(event, '${leader.name}', '${(leader.description || "").replace(/'/g, "\\'")}', '${(leader.image || "").replace(/'/g, "\\'")}', '${Number(leader.salePrice || 0)}', '${Number(leader.price || 0)}')" 
+                            ${group.some(p => p.onSale) ? '<span class="sale-badge">SALE</span>' : ''}
+                            ${(group[0].image || group[0].description) ?
+                        `<a href="#" onclick="showDetails(event, '${group[0].name}', '${(group[0].description || "").replace(/'/g, "\\'")}', '${(group[0].image || "").replace(/'/g, "\\'")}', '${Number(group[0].salePrice || 0)}', '${Number(group[0].price || 0)}')" 
                                    style="font-size:11px; margin-left:8px; color:inherit; text-decoration:underline; opacity:0.9;">Details</a>`
                         : ""}
                         </span>
                         
-                        <!-- Subtotal Span -->
+                        <!--Subtotal Span-->
                         <span class="prod-subtotal" style="font-size:0.9em; font-weight:bold; margin-right: 12px; display:none;">$0.00</span>
                         
-                        <!-- Header Cols for Alignment when open -->
-                        <div class="header-expanded-content" style="display:flex; flex:1; justify-content: flex-end;">
-                            ${headerColsHtml}
-                    </div>`;
+                        <!--Header Cols for Alignment when open-->
+                <div class="header-expanded-content" style="display:flex; flex:1; justify-content: flex-end;">
+                    ${headerColsHtml}
+                </div>
+                </div>`;
 
                 prodDetails.appendChild(prodSummary);
 
@@ -566,7 +955,7 @@
         if (sPrice > 0) {
             priceHtml = `<div style="margin-bottom:8px;">
                             <span style="text-decoration:line-through; color:#999; margin-right:8px;">$${rPrice.toFixed(2)}</span>
-                            <span style="color:#D32F2F; font-weight:bold; font-size:1.1em;">$${sPrice.toFixed(2)}</span>
+                            <span style="color:inherit; font-weight:900; font-size:1.1em;">$${sPrice.toFixed(2)}</span>
                          </div>`;
         } else {
             priceHtml = `<div style="margin-bottom:8px; font-weight:bold;">$${rPrice.toFixed(2)}</div>`;
@@ -598,7 +987,8 @@
     // --- FLEX RENDER FUNCTIONS ---
 
     function renderMatrixGroupFlex(title, products, colDefs, bgColor, txtColor) {
-        const rowLabels = [...new Set(products.map(p => p.variation || "Standard"))].sort();
+        // rowLabels based on first appearance (Sheet Order)
+        const rowLabels = [...new Set(products.map(p => p.variation || "Standard"))];
 
         // Default colors if missing
         const headerBg = bgColor || "var(--md-sys-color-primary)";
@@ -607,28 +997,33 @@
         // Add 'matrix-scroll-view' class for CSS targeting
         let html = `<div class="table-container matrix-scroll-view">`;
 
-        // 1. Internal Header Row
-        // Apply dynamic color here
-        html += `<div class="grid-header-row matrix-header-row" style="display:flex; width:max-content; min-width:100%; background-color:${headerBg}; color:${headerTx};">`;
-        html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:inherit; color:inherit; z-index:2; border-right:1px solid rgba(0,0,0,0.1); font-weight:bold;">${title}</div>`;
-        colDefs.forEach(col => {
-            html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; justify-content:center;">
-                        <span style="font-size:13px; font-weight:bold; display:block; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%;" title="${col.label}">${col.label}</span>
-                      </div>`;
-        });
-        html += `</div>`;
-
         // 2. Data Rows
         rowLabels.forEach(rowLabel => {
-            html += `<div class="grid-row matrix-row" style="display:flex; width:max-content; min-width:100%;">`;
-            html += `<div class="col-name matrix-name-col" style="flex:0 0 160px; min-width:160px; position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid rgba(0,0,0,0.1); padding:8px 4px; display:flex; align-items:center;">
-                        <span style="font-size:14px; font-weight:500;">${rowLabel}</span>
+            const rowProducts = products.filter(p => (p.variation || "Standard") === rowLabel);
+            const rowIsSale = rowProducts.some(p => p.onSale);
+            const rowAvailable = rowProducts.some(p => p.isAvailable);
+
+            // DEBUG LOGGING
+            rowProducts.forEach(p => {
+                console.log(`[DEBUG MATRIX] SKU: ${p.sku} | Name: ${p.name} | Inv: "${p.inventory}" | Avail: ${p.isAvailable}`);
+            });
+
+            html += `<div class="grid-data-row" style="border-bottom:1px solid rgba(0,0,0,0.05); width: auto; min-width: 100%;">`;
+
+            html += `<div class="col-name" style="position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid rgba(0,0,0,0.1); display:flex; align-items:center;">
+                <span style="font-family: var(--md-ref-typeface-brand), sans-serif;">${rowLabel}</span>
+                        ${rowIsSale ? '<span class="sale-badge" style="transform: scale(0.8); margin-left:4px;">SALE</span>' : ''}
+                        ${!rowAvailable ? '<span class="sale-badge" style="background:#999; transform: scale(0.8); margin-left:4px;">Not Available</span>' : ''}
                      </div>`;
+
+            // ALIGNMENT: Only use spacer if we have 2 or fewer columns to mimic Compact View
+            if (colDefs.length <= 2) {
+                html += `<div class="matrix-spacer" style="flex:1; min-width:10px;"></div>`;
+            }
 
             colDefs.forEach(col => {
                 let prod;
                 if (col.isVar2) {
-                    // Normalize to string for safe comparison, as Sheet can return numbers
                     prod = products.find(p => String(p.variation) === String(rowLabel) && String(p.variation2) === String(col.name));
                 } else {
                     prod = products.find(p => (p.variation || "Standard") === rowLabel && p.name === col.name);
@@ -637,35 +1032,68 @@
                 html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:8px 4px;">`;
 
                 if (prod) {
-                    // Matches "Barbie Bitch Sticks" style: Input Box then Price below
-                    const price = Number(prod.price).toFixed(2);
+                    const isSale = !!prod.onSale;
+                    const hasDiscountValue = isSale && (Number(prod.salePrice) > 0 && Number(prod.salePrice) < Number(prod.price));
+                    const displayPrice = hasDiscountValue ? prod.salePrice : prod.price;
+                    const priceClass = isSale ? "sale-price-highlight" : "";
+                    const priceStr = Number(displayPrice).toFixed(2);
 
-                    html += `<input type="number" class="qty-input matrix-input" id="qty-${prod.sku}" value="0" min="0" 
-                                   data-sku="${prod.sku}" data-price="${prod.price}" 
-                                   data-name="${prod.name} - ${prod.variation} ${prod.variation2 ? '(' + prod.variation2 + ')' : ''}" 
-                                   data-units="${prod.unitsPerCase}"
-                                   onchange="updateTotal()"
-                                   style="width: 100%; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 8px; font-size: 16px;">
-                             <div style="font-size:11px; color:#666; margin-top:4px;">$${price}</div>`;
+                    const isAvail = prod.isAvailable;
+                    const disabledAttr = isAvail ? "" : "disabled";
+                    const bgStyle = isAvail ? "" : "background: #f0f0f0; color: #aaa;";
+
+                    // ID is now JUST the SKU
+                    html += `<input type="number" class="qty-input matrix-input" id="${prod.sku}" value="0" min="0"
+            data-sku="${prod.sku}" data-price="${displayPrice}"
+            data-name="${prod.name} - ${prod.variation} ${prod.variation2 ? '(' + prod.variation2 + ')' : ''}"
+            data-units="${prod.unitsPerCase}"
+            onchange="calculateTotal()"
+            ${disabledAttr}
+            style="width: 100%; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 8px; font-size: 16px; ${bgStyle}">`;
+
+                    html += `<div class="price-sub ${priceClass}" style="font-size:11px; margin-top:4px;">$${priceStr}</div>`;
+                    if (hasDiscountValue) {
+                        html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(prod.price).toFixed(2)}</div>`;
+                    }
                 } else {
                     html += `<div style="background:#f9f9f9; width:100%; height:100%;"></div>`;
                 }
 
                 html += `</div>`;
             });
-            html += `</div>`;
+            html += `</div>`; // End row container
         });
         html += `</div>`; // End container
         return html;
     }
 
     function renderCompactTableFlex(title, products) {
+        // Identify common spec to avoid redundancy in row labels (v1.8.20)
+        const uniqueSpecs = [...new Set(products.map(p => String(p.variation2 || "").trim()).filter(v => v && v.toLowerCase() !== "undefined"))];
+        const commonSpec = uniqueSpecs.length === 1 ? uniqueSpecs[0] : "";
+
         // 1. Group by Variation to merge Single + Case
         const merged = {};
         const orderedKeys = []; // Keep track of insertion order for Sheet Sort
 
         products.forEach(p => {
             let label = p.variation;
+
+            // Skip if variation is a header/placeholder value AND product looks invalid
+            const isHeaderValue = /^(type|variation|size|option|var|n\/a|none|-|standard)$/i.test(String(label).trim());
+            if (isHeaderValue) {
+                // Check if this looks like a real product (has price and SKU)
+                const hasValidPrice = p.price && Number(p.price) > 0;
+                const hasValidSKU = p.sku && String(p.sku).trim().length > 0;
+
+                if (!hasValidPrice || !hasValidSKU) {
+                    // Skip this product entirely - it's likely a header/template row
+                    return;
+                }
+                // If it has valid data, treat as no variation and continue
+                label = "";
+            }
+
             if (!label || label === "Standard") {
                 // Regex: Match Base Name at START of string only
                 const regex = new RegExp("^" + escapeRegex(title), "i");
@@ -676,22 +1104,83 @@
                 }
             }
             if (!label) label = "Standard"; // Fallback
+            label = String(label).trim();
 
-            // Normalize label key
-            const key = label.toLowerCase();
-
-            // If new key, add to ordered list
+            const key = label; // Group by flavor/strain as the base key
             if (!merged[key]) {
-                merged[key] = { label: label, single: null, case: null };
+                // Add Strength (Var2) to labels only if it's NOT common to the whole group (v1.8.20)
+                const v2 = String(p.variation2 || "").trim();
+                const displaySpec = (v2 && v2 !== commonSpec) ? ` (${v2})` : "";
+                const fullLabel = label + displaySpec;
+
+                merged[key] = { label: fullLabel, single: null, case: null, variations: [] };
                 orderedKeys.push(key);
             }
 
-            // Heuristic: If unitsPerCase > 1, it's a case
-            const units = parseInt(p.unitsPerCase) || 1;
-            if (units > 1) {
-                merged[key].case = p;
-            } else {
-                merged[key].single = p;
+            // Collect all variants for this key to sort them into slots correctly later
+            merged[key].variations.push(p);
+        });
+
+        // 2. Map Collected Variations to Single/Case Slots
+        orderedKeys.forEach(key => {
+            const entry = merged[key];
+            const vars = entry.variations;
+
+            // Sort logic: 
+            // 1. Identify Master Case (Highest Tier)
+            // 2. Identify Carton (Middle Tier)
+            // 3. Identify Single (Lowest Tier)
+
+            const masterCase = vars.find(v => {
+                const combined = (String(v.variation || "") + " " + String(v.variation2 || "") + " " + String(v.variation3 || "")).toLowerCase();
+                return (combined.includes("master") || combined.includes("multi")) && v.hasCase;
+            });
+
+            const carton = vars.find(v => {
+                if (v === masterCase) return false;
+                const combined = (String(v.variation || "") + " " + String(v.variation2 || "") + " " + String(v.variation3 || "")).toLowerCase();
+                return (combined.includes("carton") || combined.includes("box") || v.hasCase);
+            });
+
+            const explicitSingle = vars.find(v => {
+                if (v === masterCase || v === carton) return false;
+                const combined = (String(v.variation || "") + " " + String(v.variation2 || "") + " " + String(v.variation3 || "")).toLowerCase();
+                return combined.includes("single") || !v.hasCase;
+            });
+
+            // SCENARIO 1: Master Case + Carton
+            if (masterCase && carton) {
+                entry.case = masterCase;
+                entry.single = carton;
+            }
+            // SCENARIO 2: Master Case + Single
+            else if (masterCase && explicitSingle) {
+                entry.case = masterCase;
+                entry.single = explicitSingle;
+            }
+            // SCENARIO 3: Carton + Single
+            else if (carton && explicitSingle) {
+                entry.case = carton;
+                entry.single = explicitSingle;
+            }
+            // SCENARIO 4: Two variations, one is a Case
+            else if (vars.length === 2 && vars.some(v => v.hasCase) && vars.some(v => !v.hasCase)) {
+                entry.case = vars.find(v => v.hasCase);
+                entry.single = vars.find(v => !v.hasCase);
+            }
+            // SCENARIO 5: Just Case (Master or Carton)
+            else if (masterCase || carton) {
+                entry.case = masterCase || carton;
+            }
+            // FALLBACK: Sort by hasCase property (Directive v1.8.19)
+            else {
+                vars.forEach(v => {
+                    if (v.hasCase) {
+                        entry.case = v;
+                    } else {
+                        entry.single = v;
+                    }
+                });
             }
         });
 
@@ -710,9 +1199,7 @@
             const leader = pSingle || pCase;
 
             // Sales Logic (Leader)
-            const catSetting = window.categorySettings && window.categorySettings[leader.category];
-            const catSaleActive = catSetting ? catSetting.saleActive : false;
-            const isSale = catSaleActive && leader.onSale && (leader.salePrice > 0);
+            const isSale = leader.onSale; // Show badge if onSale is true
 
             // Info Icon
             let infoHtml = "";
@@ -725,28 +1212,43 @@
                 infoHtml = `<span class="info-icon" onclick="showDetails(event, '${cleanName}', '${cleanDesc}', '${cleanImg}', '${sPrice}', '${rPrice}')">i</span>`;
             }
 
+            // Check Availability
+            if (pCase) console.log(`[DEBUG] SKU: ${pCase.sku} | Name: ${pCase.name} | Inv: "${pCase.inventory}" | Avail: ${pCase.isAvailable}`);
+            if (pSingle) console.log(`[DEBUG] SKU: ${pSingle.sku} | Name: ${pSingle.name} | Inv: "${pSingle.inventory}" | Avail: ${pSingle.isAvailable}`);
+
+            const isSingleAvail = pSingle && pSingle.isAvailable;
+            const isCaseAvail = pCase && pCase.isAvailable;
+            const isRowAvailable = isSingleAvail || isCaseAvail;
+
             html += `<div class="grid-data-row">`;
             html += `<div class="col-name">
-                        ${r.label} 
-                        ${isSale ? '<span class="sale-badge">SALE</span>' : ''}
-                        ${infoHtml}
-                     </div>`;
+                ${r.label} 
+                ${isSale ? '<span class="sale-badge">SALE</span>' : ''}
+                ${!isRowAvailable ? '<span class="sale-badge" style="background:#999;">Not Available</span>' : ''}
+                ${infoHtml}
+                </div>`;
 
             // --- SINGLE COLUMN ---
             html += `<div class="col-data">`;
             if (pSingle) {
-                const isSingleSale = catSaleActive && pSingle.onSale && (pSingle.salePrice > 0);
-                const displayPrice = isSingleSale ? pSingle.salePrice : pSingle.price;
+                const isSingleSale = !!pSingle.onSale;
+                const hasDiscount = isSingleSale && (Number(pSingle.salePrice) > 0 && Number(pSingle.salePrice) < Number(pSingle.price));
+                const displayPrice = hasDiscount ? pSingle.salePrice : pSingle.price;
                 const priceClass = isSingleSale ? "sale-price-highlight" : "";
 
-                html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
-                    data-sku="${pSingle.sku}" data-type="unit"
-                    data-category="${leader.category}" data-group="${escapeRegex(title)}"
-                    class="table-input qty-input" placeholder="0">`;
+                const disabledAttr = pSingle.isAvailable ? "" : "disabled";
+                const bgStyle = pSingle.isAvailable ? "" : "background: #f0f0f0; color: #aaa;";
+
+                html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0" 
+            id="${pSingle.sku}"
+            data-sku="${pSingle.sku}" data-type="unit"
+            data-category="${leader.category}" data-group="${escapeRegex(title)}"
+            class="table-input qty-input" placeholder="0"
+            ${disabledAttr} style="${bgStyle}">`;
 
                 // ALWAYS Show Price
                 html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
-                if (isSingleSale) {
+                if (hasDiscount) {
                     html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
                 }
             }
@@ -757,28 +1259,33 @@
                 html += `<div class="col-data">`;
                 if (pCase) {
                     const units = parseInt(pCase.unitsPerCase);
-                    // Check if Case itself is on sale (usually inherits status, but check attributes)
-                    const isCaseSale = catSaleActive && pCase.onSale && (pCase.salePrice > 0);
-                    const casePrice = isCaseSale ? pCase.salePrice : pCase.price;
+                    const isCaseSale = !!pCase.onSale;
+                    const hasCaseDiscount = isCaseSale && (Number(pCase.salePrice) > 0 && Number(pCase.salePrice) < Number(pCase.price));
+                    const casePrice = hasCaseDiscount ? pCase.salePrice : pCase.price;
                     const cPriceClass = isCaseSale ? "sale-price-highlight" : "";
 
-                    html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0"
-                    data-sku="${pCase.sku}" data-type="case" data-per-case="${units}"
-                    data-category="${leader.category}" data-group="${escapeRegex(title)}"
-                    class="table-input qty-input" placeholder="0">`;
+                    const disabledAttrCase = pCase.isAvailable ? "" : "disabled";
+                    const bgStyleCase = pCase.isAvailable ? "" : "background: #f0f0f0; color: #aaa;";
+
+                    html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0" 
+            id="${pCase.sku}"
+            data-sku="${pCase.sku}" data-type="case" data-per-case="${units}"
+            data-category="${leader.category}" data-group="${escapeRegex(title)}"
+            class="table-input qty-input" placeholder="0"
+            ${disabledAttrCase} style="${bgStyleCase}">`;
 
                     // ALWAYS Show Price
                     html += `<div class="price-sub ${cPriceClass}">$${Number(casePrice).toFixed(2)}</div>`;
-                    if (isCaseSale) {
+                    if (hasCaseDiscount) {
                         html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pCase.price).toFixed(2)}</div>`;
                     }
                 } else {
                     html += `<span style="color:#ccc;">-</span>`;
                 }
-                html += `</div > `;
+                html += `</div>`;
             }
 
-            html += `</div > `;
+            html += `</div>`;
         });
 
         html += `</div>`;
@@ -799,6 +1306,7 @@
     function calculateTotal() {
         let totalPieces = 0;
         let grandTotal = 0;
+        let totalCommission = 0;
 
         // Maps to store element totals
         const catTotals = new Map();
@@ -818,46 +1326,50 @@
                 // Find product in catalog
                 const sku = input.dataset.sku;
                 const product = PRODUCT_CATALOG.find(p => p.sku === sku);
+                if (!product) return;
 
-                if (product) {
-                    const price = Number(product.price) || 0;
-                    const salePrice = Number(product.salePrice) || 0;
+                const isOnSale = !!product.onSale;
+                const price = isOnSale ? (parseFloat(product.salePrice) || 0) : (parseFloat(product.price) || 0);
 
-                    // Check Category Sale Active Status
-                    const catSetting = window.categorySettings && window.categorySettings[product.category];
-                    const catSaleActive = catSetting ? catSetting.saleActive : false;
+                // Bulletproof units calculation
+                const units = parseInt(product.unitsPerCase) || parseInt(product.unitsMultiplier) || 1;
 
-                    const isOnSale = catSaleActive && product.onSale && salePrice > 0;
-                    const finalPrice = isOnSale ? salePrice : price;
+                // Bulletproof commission with fallback defaults
+                const commRate = isOnSale
+                    ? (parseFloat(product.saleCommission) || 1.0)   // Default $1.00 on sale
+                    : (parseFloat(product.commissionRate) || 1.5);  // Default $1.50 regular
 
-                    let lineTotal = 0;
-                    if (input.dataset.type === 'case') {
-                        const perCase = parseInt(input.dataset.perCase) || 1;
-                        totalPieces += (val * perCase);
-                        lineTotal = (finalPrice * val);
-                    } else {
-                        // Unit
-                        totalPieces += val;
-                        lineTotal = (finalPrice * val);
-                    }
-                    grandTotal += lineTotal;
+                const lineTotal = price * val;
+                const pieces = val * units;
+                const lineComm = commRate * val * units;  // Commission = rate × quantity × units
 
-                    // Aggregate for Headers
-                    const pDetails = input.closest('.product-group-details');
-                    const cDetails = input.closest('.category-details');
+                totalPieces += pieces;
+                grandTotal += lineTotal;
+                totalCommission += lineComm;
 
-                    if (pDetails) {
-                        prodTotals.set(pDetails, (prodTotals.get(pDetails) || 0) + lineTotal);
-                    }
-                    if (cDetails) {
-                        catTotals.set(cDetails, (catTotals.get(cDetails) || 0) + lineTotal);
-                    }
+                // Aggregate for Headers
+                const pDetails = input.closest('.product-group-details');
+                const cDetails = input.closest('.category-details');
+
+                if (pDetails) {
+                    prodTotals.set(pDetails, (prodTotals.get(pDetails) || 0) + lineTotal);
+                }
+                if (cDetails) {
+                    catTotals.set(cDetails, (catTotals.get(cDetails) || 0) + lineTotal);
                 }
             }
         });
 
-        document.getElementById('total-pieces').textContent = totalPieces;
+        // Update UI elements (with null checks for hidden admin elements)
+        const piecesEl = document.getElementById('total-pieces');
+        const commEl = document.getElementById('total-commission');
+        if (piecesEl) piecesEl.textContent = totalPieces;
+        if (commEl) commEl.textContent = `$${totalCommission.toFixed(2)} `;
         document.getElementById('header-total').textContent = `Total: $${grandTotal.toFixed(2)} `;
+
+        // Store values for later use in order submission
+        window._calculatedTotalPieces = totalPieces;
+        window._calculatedTotalCommission = totalCommission;
 
         // Update UI Spans
         for (const [el, total] of catTotals.entries()) {
@@ -874,7 +1386,7 @@
             if (summary) {
                 const span = summary.querySelector('.prod-subtotal');
                 if (span && total > 0) {
-                    span.textContent = `$${total.toFixed(2)}`;
+                    span.textContent = `$${total.toFixed(2)} `;
                     span.style.display = 'block';
                 }
             }
@@ -949,11 +1461,12 @@
             stage = "Rendering Client Info";
             const revInfo = document.getElementById('review-client-info');
             if (revInfo) {
+                const comments = document.getElementById('client-comments-input').value;
                 revInfo.innerHTML = `
-                <strong>Bill To:</strong><br>
-                ${cName}<br>
-                ${cAddr}
-                `;
+                <div style="margin-bottom:8px;"><strong>Bill To:</strong> ${cName}</div>
+                    <div style="margin-bottom:8px;"><strong>Address:</strong> ${cAddr}</div>
+                ${comments ? `<div><strong>Comments:</strong> ${comments}</div>` : ""}
+            `;
             }
 
             // Switch Views
@@ -966,7 +1479,7 @@
             if (window.scrollTo) window.scrollTo(0, 0);
 
         } catch (e) {
-            alert(`Error in Review (${stage}): ` + e.message);
+            alert(`Error in Review(${stage}): ` + e.message);
             console.error(e);
         }
     }
@@ -990,11 +1503,14 @@
         loader.classList.remove('hidden');
 
         const payload = {
+            id: window.editOrderId,
+            editOrderId: window.editOrderId, // For revision tracking
             clientId: CLIENT_ID,
             clientName: document.getElementById('client-name-input').value,
             clientAddress: document.getElementById('client-address-input').value,
+            clientComments: document.getElementById('client-comments-input').value,
             items: lastItems,
-            totalPieces: document.getElementById('total-pieces').textContent
+            totalPieces: window._calculatedTotalPieces || 0
         };
 
         google.script.run
@@ -1006,12 +1522,12 @@
     function generateOrderSummaryHtml(items) {
         let tableHtml = `<table style="width:100%; border-collapse: collapse; font-size:12px;">`;
         tableHtml += `<thead style="background:#f0f0f0; font-weight:bold;">
-                        <tr>
-                            <th style="padding:8px; border:1px solid #ddd;">Product</th>
-                            <th style="padding:8px; border:1px solid #ddd;">Qty (Units)</th>
-                            <th style="padding:8px; border:1px solid #ddd;">Line Total</th>
-                        </tr>
-                      </thead><tbody>`;
+                <tr>
+                    <th style="padding:8px; border:1px solid #ddd;">Product</th>
+                    <th style="padding:8px; border:1px solid #ddd;">Qty (Units)</th>
+                    <th style="padding:8px; border:1px solid #ddd;">Line Total</th>
+                </tr>
+                      </thead > <tbody>`;
 
         let grandTotal = 0;
 
@@ -1021,22 +1537,18 @@
             if (product) {
                 const name = product.name + (product.variation && product.variation !== "Standard" ? ` ${product.variation}` : "");
 
-                // Calculate Price
-                const price = Number(product.price) || 0;
-                const salePrice = Number(product.salePrice) || 0;
-                const catSetting = window.categorySettings && window.categorySettings[product.category];
-                const catSaleActive = catSetting ? catSetting.saleActive : false;
-                const isSale = catSaleActive && product.onSale && salePrice > 0;
-                const finalPrice = isSale ? salePrice : price;
+                // Calculate Price based on unified product-level sale logic (Matches header calculation)
+                const isSale = !!product.onSale;
+                const finalPrice = isSale ? (Number(product.salePrice) || 0) : (Number(product.price) || 0);
 
                 const lineTotal = finalPrice * item.quantity;
                 grandTotal += lineTotal;
 
                 tableHtml += `<tr>
-                                <td style="padding:8px; border:1px solid #ddd;">${name}</td>
-                                <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
-                                <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${lineTotal.toFixed(2)}</td>
-                              </tr>`;
+                    <td style="padding:8px; border:1px solid #ddd;">${name}</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${lineTotal.toFixed(2)}</td>
+                </tr>`;
             } else {
                 tableHtml += `<tr>
                                 <td style="padding:8px; border:1px solid #ddd;">${item.sku}</td>
@@ -1047,9 +1559,9 @@
         });
 
         tableHtml += `<tr style="font-weight:bold; background:#fafafa;">
-                        <td colspan="2" style="padding:8px; border:1px solid #ddd; text-align:right;">Total:</td>
-                        <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${grandTotal.toFixed(2)}</td>
-                      </tr>`;
+                    <td colspan="2" style="padding:8px; border:1px solid #ddd; text-align:right;">Total:</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${grandTotal.toFixed(2)}</td>
+                </tr>`;
         tableHtml += `</tbody></table>`;
         return tableHtml;
     }
@@ -1122,13 +1634,25 @@
     function groupProductsDynamically(products) {
         const groups = {};
         products.forEach(p => {
-            // Restore smart grouping: Strip trailing numbers, units (mg, g, ml), and 'pack'
-            // This ensures "Soda Squares 100mg" and "Soda Squares 200mg" group under "Soda Squares"
-            let base = String(p.name).replace(/\s*(\d+(\.\d+)?\s*(mg|g|ml|oz|lb|kg|pcs|pack|pk)|#\d+|\d+)$/i, "").trim();
-            // Also strip common " - Case" or "Case of" suffixes if present, though usually handled by separate field
-            base = base.replace(/\s*-\s*Case$/i, "").trim();
+            if (p.isParent) return;
 
-            if (!base) base = p.name; // Fallback to full name if stripped to empty
+            // Grouping: Prefer clean groupName (Directive v1.8.16: Strict Trim)
+            const gName = String(p.groupName || "").trim();
+            const pName = String(p.name || "").trim();
+            const pSku = String(p.sku || "").trim();
+
+            let base = (gName && !gName.toLowerCase().includes("unnamed")) ? gName : (pName || pSku || "Unknown Product");
+
+            // Cleanup: Strip trailing attributes if header is dynamic
+            if (!gName || gName.toLowerCase().includes("unnamed")) {
+                base = base.replace(/\s*(\d+(\.\d+)?\s*(mg|g|ml|oz|lb|kg|pcs|pack|pk)|#\d+|\d+)$/i, "").trim();
+            }
+
+            // Final safety filter for "empty" strings or system placeholders
+            if (!base || base.toLowerCase() === "undefined" || base === "Uncategorized Item" || base === "Unnamed Product") {
+                base = "Uncategorized Item";
+            }
+
             if (!groups[base]) groups[base] = [];
             groups[base].push(p);
         });
@@ -1139,33 +1663,110 @@
      * Check if a group should be displayed as a 2D Matrix
      */
     function checkMatrixEligibility(products, groupName) {
-        // Robust check for Var2 content
-        const hasVar2 = products.some(p => p.variation2 && String(p.variation2).trim() !== "" && String(p.variation2).trim().toLowerCase() !== "undefined");
+        // Directive v1.8.20: Only Matrix if we have MULTIPLE unique Variation 2 columns.
+        // If there's only one (e.g. all are "50mg"), use the Compact Table for Single/Case support.
+        const uniqueSpecs = [...new Set(products.map(p => String(p.variation2 || "").trim()).filter(v => v && v.toLowerCase() !== "undefined"))];
 
-        // DEBUG: Temporary alert for specific problem group
-        if ((groupName === "Buzzed Cola" || groupName === "Soda Squares") && !window.hasAlertedDebug) {
-            // Find first product with Var2 to see what it looks like
-            const sample = products.find(p => p.variation2) || products[0];
-            // alert(`DEBUG ${groupName}: HasVar2=${hasVar2}. Sample Var2="${sample.variation2}". Name="${sample.name}"`);
-            // window.hasAlertedDebug = true; // Commented out to avoid spam, uncomment if needed
+        if (uniqueSpecs.length > 1) return true;
+
+        // Final fallback: Stay in Compact mode to preserve the Single/Case functionality.
+        return false;
+    }
+
+    /**
+     * Update My Information Modal Functions
+     */
+    function showUpdateInfoModal() {
+        // Pre-populate with current values
+        document.getElementById('update-client-id').value = CLIENT_ID || '';
+        document.getElementById('update-client-name').value = document.getElementById('client-name-input').value || '';
+
+        // Parse existing address into components
+        const fullAddress = document.getElementById('client-address-input').value || '';
+        const addrParts = fullAddress.split(',').map(s => s.trim());
+
+        document.getElementById('update-addr-street').value = addrParts[0] || '';
+        document.getElementById('update-addr-city').value = addrParts[1] || '';
+
+        // Province and Postal may be combined as "ON N0P 1A0"
+        if (addrParts[2]) {
+            const provPostal = addrParts[2].trim();
+            // Try to split province from postal code (e.g. "ON N0P 1A0")
+            const postalMatch = provPostal.match(/^([A-Za-z]{2})\s+(.+)$/);
+            if (postalMatch) {
+                document.getElementById('update-addr-province').value = postalMatch[1];
+                document.getElementById('update-addr-postal').value = postalMatch[2];
+            } else {
+                document.getElementById('update-addr-province').value = provPostal;
+                document.getElementById('update-addr-postal').value = '';
+            }
+        } else {
+            document.getElementById('update-addr-province').value = '';
+            document.getElementById('update-addr-postal').value = '';
         }
 
-        if (hasVar2) return true;
+        document.getElementById('update-info-modal').classList.remove('hidden');
+    }
 
-        // Old Logic Fallback
-        const byVar = {};
-        products.forEach(p => {
-            const v = p.variation || "Standard";
-            if (!byVar[v]) byVar[v] = [];
-            byVar[v].push(p);
-        });
+    function closeUpdateInfoModal(event) {
+        // Close if clicking overlay background or explicitly called
+        if (!event || event.target === document.getElementById('update-info-modal')) {
+            document.getElementById('update-info-modal').classList.add('hidden');
+        }
+    }
 
-        const hasMultipleCols = Object.values(byVar).some(arr => {
-            const uniqueNames = new Set(arr.map(p => p.name));
-            return uniqueNames.size > 1;
-        });
+    function submitInfoUpdate() {
+        // Compose address from multi-field inputs
+        const street = document.getElementById('update-addr-street').value.trim();
+        const city = document.getElementById('update-addr-city').value.trim();
+        const province = document.getElementById('update-addr-province').value.trim();
+        const postal = document.getElementById('update-addr-postal').value.trim();
 
-        return hasMultipleCols && (Object.keys(byVar).length > 1);
+        let addressParts = [];
+        if (street) addressParts.push(street);
+        if (city) addressParts.push(city);
+        let provPostal = '';
+        if (province && postal) provPostal = province + ' ' + postal;
+        else if (province) provPostal = province;
+        else if (postal) provPostal = postal;
+        if (provPostal) addressParts.push(provPostal);
+        const composedAddress = addressParts.join(', ');
+
+        const updateData = {
+            originalClientId: CLIENT_ID,
+            newClientId: document.getElementById('update-client-id').value.trim(),
+            newClientName: document.getElementById('update-client-name').value.trim(),
+            newAddress: composedAddress
+        };
+
+        if (!updateData.newClientId && !updateData.newClientName && !updateData.newAddress) {
+            showToast('Please enter at least one field to update.', 'error');
+            return;
+        }
+
+        // Show loading state
+        const submitBtn = document.querySelector('#update-info-modal .md3-btn-filled');
+        const originalText = submitBtn.textContent;
+        submitBtn.textContent = 'Submitting...';
+        submitBtn.disabled = true;
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+
+                if (result && result.success) {
+                    showToast('Update request submitted! Changes pending approval.', 'success');
+                    closeUpdateInfoModal();
+                } else {
+                    showToast('Error: ' + (result.message || 'Could not submit update.'), 'error');
+                }
+            })
+            .withFailureHandler(function (error) {
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+                showToast('Error submitting update: ' + error.message, 'error');
+            })
+            .saveClientInfoUpdate(updateData);
     }
 </script>
-```

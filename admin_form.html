@@ -1,0 +1,353 @@
+<!-- modular_admin_form.html -->
+<div id="admin-container">
+    <h3>Admin Dashboard <span class="version-tag">Bulk Generator v1.2</span> ✨</h3>
+
+    <!-- Mode Switch -->
+    <div style="margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="new" checked onchange="toggleMode()">
+            <span>Single Entry</span>
+        </label>
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="bulk" onchange="toggleMode()">
+            <span>Bulk Generator</span> <!-- New Mode -->
+        </label>
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="existing" onchange="toggleMode()">
+            <span>Add Variation</span>
+        </label>
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="edit" onchange="toggleMode()">
+            <span>Edit Product</span>
+        </label>
+        <label class="mode-btn delete-mode">
+            <input type="radio" name="mode" value="delete" onchange="toggleMode()">
+            <span>Archive</span>
+        </label>
+        <label class="mode-btn">
+            <input type="radio" name="mode" value="addcustomer" onchange="toggleMode()">
+            <span>➕ Customer</span>
+        </label>
+    </div>
+
+    <!-- Mode: Select Existing (For Add/Edit/Delete) -->
+    <div id="existingSelectWrapper" class="md3-input-wrapper" style="display: none;">
+        <select id="existingProduct" onchange="onExistingProductChange()">
+            <option value="">Select a Base Product...</option>
+        </select>
+        <label>Select Base Product</label>
+    </div>
+
+    <!-- Mode: Add/Bulk (Form) -->
+    <div id="addFormSection">
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!-- SECTION 1: PRODUCT DATA                        -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div
+            style="background: var(--md-sys-color-surface); border-radius:12px; padding:20px; margin-bottom:16px; box-shadow: var(--md-sys-elevation-1);">
+            <h4
+                style="margin:0 0 16px 0; color: var(--md-sys-color-primary); font-size:14px; font-weight:500; letter-spacing:0.1px; text-transform:uppercase;">
+                <span class="material-symbols-outlined"
+                    style="font-size:18px; vertical-align:middle; margin-right:6px;">inventory_2</span>
+                Product Data
+            </h4>
+
+            <div class="md3-input-wrapper">
+                <label id="lbl_brand">Brand</label>
+                <input type="text" id="brand" placeholder=" ">
+            </div>
+
+            <div class="md3-input-wrapper">
+                <label id="lbl_name">Base Product Name</label>
+                <input type="text" id="baseName" placeholder=" " required>
+            </div>
+
+            <div class="md3-input-wrapper" id="wrap_zoneVariation" style="display:none;">
+                <label id="lbl_zoneVariation">Zone Variation Name</label>
+                <input type="text" id="zoneVariation" placeholder=" ">
+            </div>
+
+            <div class="md3-input-wrapper">
+                <label id="lbl_category">Category</label>
+                <select id="category" onchange="onCategorySelectChange()">
+                    <option value="">Select Category...</option>
+                    <option value="NEW_CAT">+ Add New Category</option>
+                </select>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="md3-input-wrapper">
+                    <label id="lbl_ref">Reference Character</label>
+                    <input type="text" id="baseRef" placeholder=" " required>
+                </div>
+                <div class="md3-input-wrapper">
+                    <label id="lbl_baseSku">Base SKU part</label>
+                    <input type="text" id="baseSku" placeholder=" " required>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="md3-input-wrapper">
+                    <label id="lbl_commissionRate">Normal Commission ($)</label>
+                    <input type="number" id="commissionRate" placeholder=" " step="0.01">
+                </div>
+                <div class="md3-input-wrapper">
+                    <label id="lbl_saleCommission">Sale Commission ($)</label>
+                    <input type="number" id="saleCommission" placeholder=" " step="0.01">
+                </div>
+            </div>
+
+            <div class="md3-input-wrapper">
+                <label id="lbl_description">Description (Optional)</label>
+                <textarea id="description" rows="2" placeholder=" "></textarea>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="md3-input-wrapper">
+                    <label id="lbl_image">Image URL (Optional)</label>
+                    <input type="text" id="imageUrl" placeholder=" ">
+                </div>
+                <div class="md3-input-wrapper">
+                    <label id="lbl_backgroundColor">Color (Hex/Name)</label>
+                    <input type="text" id="baseColor" placeholder=" ">
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!-- SECTION 2: PRODUCT VARIATION OPTIONS            -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="varGroupSection"
+            style="display:none; background: var(--md-sys-color-surface); border-radius:12px; padding:20px; margin-bottom:16px; box-shadow: var(--md-sys-elevation-1);">
+            <h4
+                style="margin:0 0 4px 0; color: var(--md-sys-color-primary); font-size:14px; font-weight:500; letter-spacing:0.1px; text-transform:uppercase;">
+                <span class="material-symbols-outlined"
+                    style="font-size:18px; vertical-align:middle; margin-right:6px;">tune</span>
+                Variation Options
+            </h4>
+            <p style="font-size:12px; color: var(--md-sys-color-on-surface-variant); margin:0 0 16px 0;">
+                Select the variation values to include. Each group maps to a variation slot.
+            </p>
+
+            <div id="varGroupList" style="display:flex; flex-direction:column; gap:12px;">
+                <!-- Dynamically populated variation group cards with individual checkboxes -->
+            </div>
+        </div>
+
+        <!-- Hidden variation name fields (auto-populated from group selections) -->
+        <div id="varTypeContainer" style="display:none;">
+            <input type="hidden" id="var1Name">
+            <input type="hidden" id="var2Name">
+            <input type="hidden" id="var3Name" value="Format">
+            <input type="hidden" id="var4Name" value="Units">
+        </div>
+
+        <!-- Bulk Generator Inputs (New Section) -->
+        <div id="bulkGeneratorSection"
+            style="display:none; background: var(--md-sys-color-surface); border-radius:12px; padding:20px; margin-bottom:16px; box-shadow: var(--md-sys-elevation-1);">
+            <h4
+                style="margin:0 0 4px 0; color: var(--md-sys-color-primary); font-size:14px; font-weight:500; letter-spacing:0.1px; text-transform:uppercase;">
+                <span class="material-symbols-outlined"
+                    style="font-size:18px; vertical-align:middle; margin-right:6px;">settings</span>
+                Generation Settings
+            </h4>
+            <p style="font-size:12px; color: var(--md-sys-color-on-surface-variant); margin:0 0 16px 0;">
+                Configure pricing and formats, then generate combinations.
+            </p>
+
+            <!-- Hidden textareas — auto-populated from selected group checkboxes -->
+            <textarea id="bulkVar1List" style="display:none;"></textarea>
+            <textarea id="bulkVar2List" style="display:none;"></textarea>
+
+            <!-- Global Price -->
+            <div class="md3-input-wrapper" style="margin-bottom: 16px;">
+                <label>Base Price ($) - Applied to formats below</label>
+                <input type="number" id="masterPrice" step="0.01" placeholder="0.00">
+            </div>
+
+            <!-- Generate Formats -->
+            <div style="margin-bottom:16px;">
+                <label
+                    style="font-size:12px; font-weight:500; display:block; margin-bottom:8px; color: var(--md-sys-color-primary); text-transform:uppercase; letter-spacing:0.5px;">
+                    Generate Formats
+                </label>
+
+                <!-- Format A -->
+                <div class="format-row">
+                    <label class="md3-checkbox-wrapper" title="Toggle Format A">
+                        <input type="checkbox" id="formatAEnabled" checked>
+                        <span class="md3-checkbox-visual">
+                            <span class="material-symbols-outlined icon">check</span>
+                        </span>
+                    </label>
+                    <div class="md3-input-wrapper compact-input" style="margin-bottom:0;">
+                        <label>Format Name</label>
+                        <input type="text" id="formatAName" value="Single">
+                    </div>
+                    <div class="md3-input-wrapper compact-input" style="margin-bottom:0;">
+                        <label>Units per Item</label>
+                        <input type="number" id="formatAUnits" value="1" style="width: 80px;">
+                    </div>
+                </div>
+
+                <!-- Format B -->
+                <div class="format-row">
+                    <label class="md3-checkbox-wrapper" title="Toggle Format B">
+                        <input type="checkbox" id="formatBEnabled" checked>
+                        <span class="md3-checkbox-visual">
+                            <span class="material-symbols-outlined icon">check</span>
+                        </span>
+                    </label>
+                    <div class="md3-input-wrapper compact-input" style="margin-bottom:0;">
+                        <label>Format Name</label>
+                        <input type="text" id="formatBName" value="Carton">
+                    </div>
+                    <div class="md3-input-wrapper compact-input" style="margin-bottom:0;">
+                        <label>Units per Case</label>
+                        <input type="number" id="formatBUnits" placeholder="e.g. 10" style="width: 80px;">
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-filled" onclick="generateBulkRows()"
+                style="border-radius:20px; padding:10px 24px; font-size:14px; letter-spacing:0.1px;">
+                <span class="material-symbols-outlined"
+                    style="font-size:18px; vertical-align:middle; margin-right:6px;">auto_awesome</span>
+                Generate Combinations
+            </button>
+        </div>
+
+        <!-- Generated Rows List -->
+        <div id="variationList">
+            <!-- Rows will go here -->
+        </div>
+
+        <button class="btn btn-tonal" onclick="addVariationRow()" id="addVarBtn">
+            <span class="material-symbols-outlined" style="margin-right:8px;">add</span>
+            Add Manual Row
+        </button>
+
+        <button class="btn btn-filled" onclick="submitForm()" id="submitBtn">
+            Submit Products
+        </button>
+    </div>
+
+    <!-- Mode: Add Customer -->
+    <div id="addCustomerSection" style="display:none;">
+        <h4 style="margin-top:0; color: var(--md-sys-color-primary);">New Customer</h4>
+        <p style="font-size:12px; color:#666; margin-bottom:16px;">Add a new client to the CLIENT DATA sheet.</p>
+
+        <div class="md3-input-wrapper">
+            <label>Client ID</label>
+            <input type="text" id="newClientId" placeholder=" " required>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <label>Company Name</label>
+            <input type="text" id="newCompanyName" placeholder=" " required>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <label>Type</label>
+            <select id="newClientType">
+                <option value="">Select Type...</option>
+            </select>
+        </div>
+
+        <div class="md3-input-wrapper">
+            <label>Phone</label>
+            <input type="tel" id="newClientPhone" placeholder=" ">
+        </div>
+
+        <div class="md3-input-wrapper">
+            <label>Manager / Contact Name</label>
+            <input type="text" id="newClientManager" placeholder=" ">
+        </div>
+
+        <!-- Address composed from multiple fields -->
+        <div style="background:#f5f5f5; padding:16px; border-radius:8px; margin-bottom:16px; border:1px solid #e0e0e0;">
+            <label
+                style="font-size:12px; font-weight:bold; display:block; margin-bottom:12px; color: var(--md-sys-color-primary);">ADDRESS</label>
+
+            <div class="md3-input-wrapper">
+                <label>Street Address</label>
+                <input type="text" id="newAddrStreet" placeholder=" ">
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="md3-input-wrapper">
+                    <label>City</label>
+                    <input type="text" id="newAddrCity" placeholder=" ">
+                </div>
+                <div class="md3-input-wrapper">
+                    <label>Province</label>
+                    <input type="text" id="newAddrProvince" placeholder=" ">
+                </div>
+            </div>
+
+            <div class="md3-input-wrapper" style="max-width:200px;">
+                <label>Postal Code</label>
+                <input type="text" id="newAddrPostal" placeholder=" ">
+            </div>
+        </div>
+
+        <!-- Section Access Checkboxes -->
+        <div style="background:#f0f7ff; padding:16px; border-radius:8px; margin-bottom:16px; border:1px solid #cce5ff;">
+            <label
+                style="font-size:12px; font-weight:bold; display:block; margin-bottom:12px; color: var(--md-sys-color-primary);">SECTION
+                ACCESS</label>
+            <div id="sectionCheckboxes" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <!-- Populated dynamically by loadSectionNames() -->
+                <label class="md3-checkbox-wrapper" title="Section A">
+                    <input type="checkbox" id="newSectionA" checked>
+                    <span class="md3-checkbox-visual">
+                        <span class="material-symbols-outlined icon">check</span>
+                    </span>
+                    <span id="sectionALabel">Section A</span>
+                </label>
+                <label class="md3-checkbox-wrapper" title="Section B">
+                    <input type="checkbox" id="newSectionB" checked>
+                    <span class="md3-checkbox-visual">
+                        <span class="material-symbols-outlined icon">check</span>
+                    </span>
+                    <span id="sectionBLabel">Section B</span>
+                </label>
+                <label class="md3-checkbox-wrapper" title="Section C">
+                    <input type="checkbox" id="newSectionC" checked>
+                    <span class="md3-checkbox-visual">
+                        <span class="material-symbols-outlined icon">check</span>
+                    </span>
+                    <span id="sectionCLabel">Section C</span>
+                </label>
+                <label class="md3-checkbox-wrapper" title="Section D">
+                    <input type="checkbox" id="newSectionD" checked>
+                    <span class="md3-checkbox-visual">
+                        <span class="material-symbols-outlined icon">check</span>
+                    </span>
+                    <span id="sectionDLabel">Section D</span>
+                </label>
+            </div>
+        </div>
+
+        <button class="btn btn-filled" onclick="submitNewClient()" id="submitClientBtn">
+            <span class="material-symbols-outlined" style="margin-right:8px;">person_add</span>
+            Add Customer
+        </button>
+    </div>
+
+    <!-- Mode: Delete (List) -->
+    <div id="deleteSection" style="display: none;">
+        <p style="font-size:13px; color:#666; margin-bottom:12px;">Select variations to move to "DELETED_PRODUCTS":</p>
+        <div id="deleteList"
+            style="max-height: 300px; overflow-y:auto; border:1px solid #eee; padding:8px; border-radius:8px;">
+            <div style="padding:16px; text-align:center; color:#999;">Select a Base Product above first.</div>
+        </div>
+        <button class="btn btn-filled" style="background-color:#B00020; margin-top:16px;" onclick="submitArchive()"
+            id="archiveBtn">
+            Archive Selected
+        </button>
+    </div>
+
+    <div id="msg" class="error"></div>
+</div>

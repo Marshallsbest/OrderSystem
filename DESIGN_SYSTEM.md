@@ -1,7 +1,7 @@
 # Design System & Material Specifications
 
 ## Overview
-This document defines the styling standards for the Order System, ensuring alignment with Material Design 3 (MD3) principles.
+This document defines the styling standards for the Order System, ensuring alignment with Material Design 3 (MD3) principles. Detailed technical references can be found in the global [Knowledge Base](../KNOWLEDGE).
 
 ## 1. Input Fields (Data Table/Grid)
 To maintain high density in order grids, we use a "Dense Outlined" variant of the Material Text Field.

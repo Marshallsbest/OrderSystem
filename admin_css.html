@@ -1,0 +1,292 @@
+<style>
+    /* Scoped Admin Styles */
+    #admin-container {
+        font-family: 'Roboto', sans-serif;
+        color: var(--md-sys-color-on-surface);
+        padding: 24px 20px;
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    #admin-container h3 {
+        margin: 0 0 32px 0;
+        font-size: 22px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    #admin-container .version-tag {
+        font-size: 10px;
+        opacity: 0.6;
+        font-weight: normal;
+        background: #eee;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+
+    /* Inputs */
+    #admin-container .md3-input-wrapper {
+        position: relative;
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #admin-container input,
+    #admin-container select,
+    #admin-container textarea {
+        order: 2;
+        width: 100%;
+        height: 48px;
+        padding: 0 16px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 15px;
+        box-sizing: border-box;
+        transition: all 0.2s;
+        background: #fff;
+        line-height: 46px;
+        /* Center text */
+    }
+
+    #admin-container textarea {
+        height: auto;
+        padding: 12px 16px;
+        line-height: 1.5;
+    }
+
+    #admin-container input:focus,
+    #admin-container textarea:focus,
+    #admin-container select:focus {
+        outline: none;
+        border-color: var(--md-sys-color-primary, #006c4c);
+        border-width: 2px;
+    }
+
+    #admin-container label {
+        order: 1;
+        display: block;
+        margin-bottom: 6px;
+        color: var(--md-sys-color-primary, #006c4c);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+    }
+
+    /* Variation Cards */
+    #admin-container .variation-card {
+        background-color: #f9f9f9;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+        border: 1px solid #e0e0e0;
+        animation: fadeIn 0.3s ease-in;
+    }
+
+    #admin-container .variation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #555;
+        text-transform: uppercase;
+    }
+
+    #admin-container .variation-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+        align-items: end;
+        /* Align bottoms */
+    }
+
+    /* Compact Inputs */
+    #admin-container .compact-input input,
+    #admin-container .compact-input select {
+        height: 36px;
+        font-size: 13px;
+        line-height: 34px;
+        padding: 0 8px;
+    }
+
+    #admin-container .compact-input label {
+        margin-bottom: 4px;
+        font-size: 11px;
+    }
+
+    /* Buttons */
+    #admin-container .btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 28px;
+        padding: 12px 24px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+        width: 100%;
+        margin-top: 16px;
+    }
+
+    #admin-container .btn-filled {
+        background-color: var(--md-sys-color-primary, #006c4c);
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    #admin-container .btn-tonal {
+        background-color: #dbece4;
+        color: #004d40;
+    }
+
+    #admin-container .icon-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: #666;
+        padding: 4px;
+        border-radius: 50%;
+    }
+
+    #admin-container .icon-btn:hover {
+        background: #eee;
+        color: #d32f2f;
+    }
+
+    /* Mode Buttons */
+    #admin-container .mode-btn {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        padding: 6px 14px;
+        border-radius: 20px;
+        border: 1px solid #ccc;
+        font-size: 13px;
+        font-weight: 500;
+        color: #555;
+        background: #fff;
+        user-select: none;
+    }
+
+    #admin-container .mode-btn input {
+        display: none;
+    }
+
+    #admin-container .mode-btn:has(input:checked) {
+        background-color: #dbece4;
+        color: #004d40;
+        border-color: #006c4c;
+    }
+
+    #admin-container .mode-btn.delete-mode:has(input:checked) {
+        background-color: #ffebee;
+        color: #b71c1c;
+        border-color: #b71c1c;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(5px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    #admin-container .error {
+        color: #b71c1c;
+        font-size: 13px;
+        margin-top: 12px;
+    }
+
+    #admin-container .success {
+        color: #006c4c;
+        font-size: 13px;
+        margin-top: 12px;
+    }
+
+    /* Custom MD3 Checkbox (Robust Wrapper) */
+    .md3-checkbox-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        position: relative;
+    }
+
+    .md3-checkbox-wrapper input {
+        position: absolute;
+        opacity: 0;
+        cursor: pointer;
+        height: 0;
+        width: 0;
+    }
+
+    .md3-checkbox-visual {
+        height: 20px;
+        width: 20px;
+        background-color: transparent;
+        border: 2px solid #757575;
+        border-radius: 2px;
+        display: flex;
+        /* Centering checkmark */
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    }
+
+    /* Checked State */
+    .md3-checkbox-wrapper input:checked~.md3-checkbox-visual {
+        background-color: var(--md-sys-color-primary, #006c4c);
+        border-color: var(--md-sys-color-primary, #006c4c);
+    }
+
+    /* Checkmark Icon */
+    .md3-checkbox-visual .icon {
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        transform: scale(0);
+        /* Hidden by default */
+        transition: transform 0.2s ease;
+    }
+
+    .md3-checkbox-wrapper input:checked~.md3-checkbox-visual .icon {
+        transform: scale(1);
+        /* Show when checked */
+    }
+
+    /* Format Row Layout */
+    .format-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        /* Checkbox | Name | Units */
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 8px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background-color: #fff;
+        border: 1px solid #e0e0e0;
+    }
+
+    .format-row:hover {
+        background-color: #f5f5f5;
+        border-color: #ccc;
+    }
+</style>

@@ -8,6 +8,7 @@ Thumbs.db
 # CLASP credentials & config (contains script IDs)
 .clasp.json
 .clasprc.json
+.claspignore
 
 # Auth/login artifacts
 login_output.txt
@@ -17,10 +18,17 @@ login_output.txt
 .env.*
 *.key
 *.pem
+*.secret
+
+# Legacy .gs files (we use .js via clasp)
+*.gs
 
 # Temp/build
 temp_clone/
-Code.js
 
 # Editor settings
 .vscode/
+.idea/
+
+# System backups and sensitive runtime data
+_SYSTEM_META/
