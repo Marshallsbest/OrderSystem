@@ -441,26 +441,41 @@
     }
 
     /**
-     * Load Client Types from the CLIENT_TYPES named range into the dropdown
+     * Load Client Types from the CLIENT_TYPES named range into the dropdown.
+     * Fixed: replaced faulty options.length guard with a proper boolean flag.
+     * Adds loading feedback and fallback defaults if the Named Range is empty/missing.
      */
+    let _clientTypesLoaded = false;
     function loadClientTypes() {
         const select = document.getElementById('newClientType');
         if (!select) return;
+        if (_clientTypesLoaded) return; // already populated successfully
 
-        // Only load once
-        if (select.options.length > 1) return;
+        // Show MD3-style loading state
+        select.innerHTML = '<option value="">Loading...</option>';
+        select.disabled = true;
+
+        const FALLBACK_TYPES = ['Retail', 'Wholesale', 'Distributor', 'Online', 'Other'];
+
+        const populate = (types) => {
+            const finalTypes = (types && types.length > 0) ? types : FALLBACK_TYPES;
+            select.innerHTML = '<option value="">Select Type...</option>';
+            finalTypes.forEach(type => {
+                const opt = document.createElement('option');
+                opt.value = type;
+                opt.textContent = type;
+                select.appendChild(opt);
+            });
+            select.disabled = false;
+            _clientTypesLoaded = true;
+        };
 
         google.script.run
-            .withSuccessHandler(types => {
-                types.forEach(type => {
-                    const opt = document.createElement('option');
-                    opt.value = type;
-                    opt.textContent = type;
-                    select.appendChild(opt);
-                });
-            })
+            .withSuccessHandler(types => populate(types))
             .withFailureHandler(err => {
                 console.error('[loadClientTypes] Error:', err);
+                populate([]); // Use fallbacks on error — form stays usable
+                _clientTypesLoaded = false; // allow retry on next tab visit
             })
             .getClientTypes();
     }
