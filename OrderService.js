@@ -1,6 +1,6 @@
 /**
  * OrderService.gs
- * Version: v0.8.66 - Added ADDRESS column support
+ * Version: v1.8.32 (Restored Production Logic)
  * 
  * CURRENT HEADERS:
  * A(0)=Version | B(1)=INVOICE_NUMBER | C(2)=TIME STAMP | D(3)=TOTAL UNITS
@@ -48,13 +48,16 @@ function processOrder(orderData) {
                     if (isProductOnSale) hasSale = true;
                     totalAmount += finalPrice * item.quantity;
 
-                    const units = parseInt(product.unitsPerCase) || 1;
-                    totalPieces += units * item.quantity;
+                    // Piece Count & Commission Multiplier
+                    // Directive: Use unitsMultiplier (Variation 4) for pieces and commission
+                    const mult = parseFloat(product.unitsMultiplier) || 1;
+                    totalPieces += mult * item.quantity;
 
                     const rate = isProductOnSale
                         ? (parseFloat(product.saleCommission) || 1.0)
                         : (parseFloat(product.commissionRate) || 1.5);
-                    totalCommission += rate * item.quantity * units;
+
+                    totalCommission += rate * item.quantity * mult;
 
                     itemsToStaging.push({
                         sku: item.sku,

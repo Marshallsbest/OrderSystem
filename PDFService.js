@@ -1,7 +1,7 @@
 /**
  * PDFService.gs
  * Generates styled PDF invoices for orders
- * Version: v1.8.25
+ * Version: v1.8.32
  */
 
 // ============================================================================
@@ -12,39 +12,47 @@
  * Get or create the Orders folder for PDF storage
  * Checks SETTINGS for custom folder URL first, otherwise creates "Orders" folder
  */
-function getOrdersFolder() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-    // Check for custom folder URL in SETTINGS
-    const customFolderUrl = getSettingValue("PDF_FOLDER_URL");
-    if (customFolderUrl && customFolderUrl.trim() !== "") {
-        try {
-            // Extract folder ID from URL
-            const match = customFolderUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) {
-                const folder = DriveApp.getFolderById(match[1]);
-                return folder;
-            }
-        } catch (e) {
-            Logger.log("Custom folder URL invalid, falling back to default: " + e.message);
-        }
-    }
-
-    // Default: Create/get "Orders" folder in same location as spreadsheet
-    const ssFile = DriveApp.getFileById(ss.getId());
-    const parents = ssFile.getParents();
-    let parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-
-    const folderName = "Orders";
+/**
+ * Helper to find or create a subfolder by name
+ * @param {GoogleAppsScript.Drive.Folder} parentFolder
+ * @param {string} folderName
+ * @returns {GoogleAppsScript.Drive.Folder}
+ */
+function getOrCreateSubfolder(parentFolder, folderName) {
     const folders = parentFolder.getFoldersByName(folderName);
-
     if (folders.hasNext()) {
         return folders.next();
     } else {
         const newFolder = parentFolder.createFolder(folderName);
-        Logger.log("Created 'Orders' folder: " + newFolder.getUrl());
+        Logger.log(`Created folder: ${folderName} in ${parentFolder.getName()}`);
         return newFolder;
     }
+}
+
+/**
+ * Get or create the monthly folder for PDF storage
+ * Structure: [Main Folder] > Order System > [Current Month Year]
+ */
+function getOrdersFolder() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ssFile = DriveApp.getFileById(ss.getId());
+    const parents = ssFile.getParents();
+    let parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+
+    // Check if parent is actually "Order System". If not, look for it/create it inside parent.
+    let systemFolder;
+    if (parentFolder.getName() === "Order System") {
+        systemFolder = parentFolder;
+    } else {
+        systemFolder = getOrCreateSubfolder(parentFolder, "Order System");
+    }
+
+    // Get or Create Monthly folder (e.g., "February 2026")
+    const now = new Date();
+    const monthFolderName = Utilities.formatDate(now, Session.getScriptTimeZone(), "MMMM YYYY");
+    const monthFolder = getOrCreateSubfolder(systemFolder, monthFolderName);
+
+    return monthFolder;
 }
 
 /**
@@ -229,12 +237,21 @@ function formatAddress(address) {
 /**
  * Build the HTML content for the invoice
  */
+/**
+ * Build the HTML content for the invoice
+ */
 function buildInvoiceHtml(orderData, formattedDate) {
     const clientName = orderData.clientName || "Unknown Client";
     const clientAddress = formatAddress(orderData.clientAddress || "");
     const comments = orderData.clientComments || "";
     const items = orderData.items || [];
-    const salesRep = orderData.salesRep || "";
+
+    // Fetch Sales Rep from settings - Prioritize CFG_SALES_REP
+    const settingsRep = getSettingValue("CFG_SALES_REP") || getSettingValue("Sales Rep") || getSettingValue("SALES_REP");
+    const salesRep = orderData.salesRep || settingsRep || "Admin";
+
+    // Extract first name only if it exists (for a cleaner look)
+    const displayRep = String(salesRep).split(/\s+/)[0] || salesRep;
 
     // Get product catalog for full product details
     const catalog = getProductCatalog();
@@ -283,38 +300,33 @@ function buildInvoiceHtml(orderData, formattedDate) {
     });
 
     // Build item rows HTML
-    // Columns: Item Name | Regular Price | Sale Price | Qty | Line Subtotal
+    // Columns: Product | Qty | Price | Sale Price | Subtotal
     let itemRowsHtml = "";
     enrichedItems.forEach(item => {
         const productDisplay = item.name + (item.variation ? " " + item.variation : "");
         const finalPrice = item.onSale ? item.salePrice : item.price;
         const lineSubtotal = finalPrice * item.quantity;
 
-        // Regular price: crossed out if on sale, normal otherwise
-        const regularPriceDisplay = item.onSale
-            ? `<span style="text-decoration:line-through;color:#999;">$${item.price.toFixed(2)}</span>`
-            : `$${item.price.toFixed(2)}`;
+        // Regular price
+        const regularPriceDisplay = `$${item.price.toFixed(2)}`;
 
         // Sale price: shown only if on sale, blank otherwise
         const salePriceDisplay = item.onSale
-            ? `<strong style="color:#e53935;">$${item.salePrice.toFixed(2)}</strong>`
-            : '';
+            ? `$${item.salePrice.toFixed(2)}`
+            : '-';
 
         itemRowsHtml += `
             <tr>
-                <td style="padding:8px;">${productDisplay}</td>
-                <td style="padding:8px;text-align:right;">${regularPriceDisplay}</td>
-                <td style="padding:8px;text-align:right;">${salePriceDisplay}</td>
-                <td style="padding:8px;text-align:center;">${item.quantity}</td>
-                <td style="padding:8px;text-align:right;">$${lineSubtotal.toFixed(2)}</td>
+                <td style="padding:4px 8px; border:1px solid #eee; font-size:12px;">${productDisplay}</td>
+                <td style="padding:4px 8px; border:1px solid #eee; text-align:center; font-size:12px;">${item.quantity}</td>
+                <td style="padding:4px 8px; border:1px solid #eee; text-align:right; font-size:12px;">${regularPriceDisplay}</td>
+                <td style="padding:4px 8px; border:1px solid #eee; text-align:right; font-size:12px; color: ${item.onSale ? '#e53935' : '#333'};">
+                    ${salePriceDisplay}
+                </td>
+                <td style="padding:4px 8px; border:1px solid #eee; text-align:right; font-weight:600; font-size:12px;">$${lineSubtotal.toFixed(2)}</td>
             </tr>
         `;
     });
-
-    // Sales Rep display
-    const salesRepHtml = salesRep
-        ? `<div class="sales-rep">Sales Rep: ${salesRep}</div>`
-        : '';
 
     // Build full HTML document
     const html = `
@@ -323,106 +335,167 @@ function buildInvoiceHtml(orderData, formattedDate) {
 <head>
     <style>
         body {
-            font-family: 'Roboto', Arial, sans-serif;
-            margin: 40px;
-            color: #333;
+            font-family: 'Inter', 'Roboto', Arial, sans-serif;
+            margin: 30px;
+            color: #1a1c1e;
+            background-color: #ffffff;
+            line-height: 1.3;
         }
-        .header {
-            margin-bottom: 30px;
-            border-bottom: 2px solid #006c4c;
-            padding-bottom: 20px;
+        .header-container {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e1e3e5;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .info-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: #5e6066;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .sales-rep-section {
+            text-align: right;
+        }
+        .sales-rep-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #006c4c;
+        }
+        .client-info {
+            flex-grow: 1;
         }
         .client-name {
-            font-size: 24px;
-            font-weight: bold;
-            color: #006c4c;
-            margin-bottom: 5px;
+            font-size: 18px;
+            font-weight: 800;
+            color: #1a1c1e;
+            margin-bottom: 2px;
         }
         .client-address {
-            font-size: 14px;
-            color: #666;
-        }
-        .order-date {
             font-size: 12px;
-            color: #999;
-            margin-top: 10px;
+            color: #44474e;
+            max-width: 400px;
         }
-        .sales-rep {
-            font-size: 13px;
-            color: #006c4c;
-            font-weight: 600;
-            margin-top: 8px;
+        .order-meta {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #74777f;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid #eee;
+            padding-top: 8px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 15px;
+            border: 1px solid #e1e3e5;
         }
         th {
-            background: #f5f5f5;
-            padding: 12px 8px;
+            background: #f1f3f4;
+            padding: 8px 10px;
             text-align: left;
-            border-bottom: 2px solid #ddd;
-            font-weight: 600;
+            font-size: 11px;
+            font-weight: 700;
+            color: #44474e;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            border-bottom: 2px solid #e1e3e5;
         }
-        th:nth-child(2) { width: 100px; text-align: right; }
-        th:nth-child(3) { width: 100px; text-align: right; }
-        th:nth-child(4) { width: 60px; text-align: center; }
-        th:nth-child(5) { width: 110px; text-align: right; }
-        td {
-            border-bottom: 1px solid #eee;
-        }
-        .subtotal-row {
-            background: #f9f9f9;
-            font-weight: bold;
-        }
-        .subtotal-row td {
-            padding: 12px 8px;
-            border-top: 2px solid #006c4c;
-        }
-        .comments-section {
-            margin-top: 30px;
-            padding: 15px;
-            background: #f5f5f5;
+        th:nth-child(2) { text-align: center; width: 50px; }
+        th:nth-child(3) { text-align: right; width: 80px; }
+        th:nth-child(4) { text-align: right; width: 80px; }
+        th:nth-child(5) { text-align: right; width: 100px; }
+        
+        .total-section {
+            margin-top: 15px;
+            padding: 12px 20px;
+            background: #006c4c;
+            color: white;
             border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .comments-label {
-            font-weight: bold;
+        .total-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .total-value {
+            font-size: 20px;
+            font-weight: 800;
+        }
+        .comments-box {
+            margin-top: 20px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-left: 4px solid #006c4c;
+            border-radius: 4px;
+        }
+        .comments-title {
+            font-size: 11px;
+            font-weight: 700;
             color: #006c4c;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        .comments-text {
+            font-size: 12px;
+            color: #44474e;
+            font-style: italic;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="client-name">${clientName}</div>
-        <div class="client-address">${clientAddress}</div>
-        <div class="order-date">Order Date: ${formattedDate}</div>
-        ${salesRepHtml}
+    <div class="header-container">
+        <div class="client-info">
+            <div class="info-label">Client Company</div>
+            <div class="client-name">${clientName}</div>
+            <div class="client-address">${clientAddress}</div>
+        </div>
+
+        <div class="sales-rep-section">
+            <div class="info-label">Sales Representative</div>
+            <div class="sales-rep-name">${displayRep}</div>
+        </div>
+    </div>
+    
+    <div class="order-meta">
+        <span>Order Date: <strong>${formattedDate}</strong></span>
+        <span>Order ID: #${orderData.id || 'N/A'}</span>
     </div>
     
     <table>
         <thead>
             <tr>
-                <th>Item</th>
+                <th>Product</th>
+                <th>Qty</th>
                 <th>Price</th>
                 <th>Sale Price</th>
-                <th>Qty</th>
                 <th>Subtotal</th>
             </tr>
         </thead>
         <tbody>
             ${itemRowsHtml}
-            <tr class="subtotal-row">
-                <td style="text-align:left; font-size:12px; color:#666;">Line Items: ${enrichedItems.length}</td>
-                <td colspan="3" style="text-align:right;">Order Total:</td>
-                <td style="text-align:right;">$${orderTotal.toFixed(2)}</td>
-            </tr>
         </tbody>
     </table>
 
+    <div class="total-section">
+        <span class="total-label">Total Order Amount</span>
+        <span class="total-value">$${orderTotal.toFixed(2)}</span>
+    </div>
+
     ${comments ? `
-    <div class="comments-section">
-        <span class="comments-label">Comments:</span> ${comments}
+    <div class="comments-box">
+        <div class="comments-title">Special Instructions / Comments</div>
+        <div class="comments-text">"${comments}"</div>
     </div>
     ` : ''}
 </body>

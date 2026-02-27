@@ -68,9 +68,9 @@ function onOpen() {
  * UI Component Launchers
  */
 function showAddProductSidebar() {
-    const html = HtmlService.createHtmlOutputFromFile('addProductSidebar')
-        .setTitle('Add/Edit Product')
-        .setWidth(450);
+    const template = HtmlService.createTemplateFromFile('addProductSidebar');
+    const html = template.evaluate()
+        .setTitle('Add/Edit Product');
     SpreadsheetApp.getUi().showSidebar(html);
 }
 
