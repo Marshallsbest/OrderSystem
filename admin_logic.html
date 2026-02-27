@@ -442,40 +442,40 @@
 
     /**
      * Load Client Types from the CLIENT_TYPES named range into the dropdown.
-     * Fixed: replaced faulty options.length guard with a proper boolean flag.
-     * Adds loading feedback and fallback defaults if the Named Range is empty/missing.
      */
     let _clientTypesLoaded = false;
     function loadClientTypes() {
         const select = document.getElementById('newClientType');
         if (!select) return;
-        if (_clientTypesLoaded) return; // already populated successfully
+        if (_clientTypesLoaded) return;
 
-        // Show MD3-style loading state
         select.innerHTML = '<option value="">Loading...</option>';
         select.disabled = true;
 
-        const FALLBACK_TYPES = ['Retail', 'Wholesale', 'Distributor', 'Online', 'Other'];
-
-        const populate = (types) => {
-            const finalTypes = (types && types.length > 0) ? types : FALLBACK_TYPES;
-            select.innerHTML = '<option value="">Select Type...</option>';
-            finalTypes.forEach(type => {
-                const opt = document.createElement('option');
-                opt.value = type;
-                opt.textContent = type;
-                select.appendChild(opt);
-            });
-            select.disabled = false;
-            _clientTypesLoaded = true;
-        };
-
         google.script.run
-            .withSuccessHandler(types => populate(types))
+            .withSuccessHandler(types => {
+                select.disabled = false;
+                if (types && types.length > 0) {
+                    select.innerHTML = '<option value="">Select Type...</option>';
+                    types.forEach(type => {
+                        const opt = document.createElement('option');
+                        opt.value = type;
+                        opt.textContent = type;
+                        select.appendChild(opt);
+                    });
+                    _clientTypesLoaded = true;
+                } else {
+                    // Named Range is empty or missing — show clear warning
+                    select.innerHTML = '<option value="">⚠ CLIENT_TYPES range is empty</option>';
+                    _clientTypesLoaded = false; // allow retry
+                    console.warn('[loadClientTypes] CLIENT_TYPES named range returned empty. Check the SETTINGS sheet.');
+                }
+            })
             .withFailureHandler(err => {
+                select.disabled = false;
+                select.innerHTML = '<option value="">⚠ Failed to load types</option>';
+                _clientTypesLoaded = false;
                 console.error('[loadClientTypes] Error:', err);
-                populate([]); // Use fallbacks on error — form stays usable
-                _clientTypesLoaded = false; // allow retry on next tab visit
             })
             .getClientTypes();
     }
