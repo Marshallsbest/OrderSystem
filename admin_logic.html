@@ -88,7 +88,8 @@
         const genSingle = document.getElementById('formatAEnabled').checked;
         const genCase = document.getElementById('formatBEnabled').checked;
         const masterPrice = parseFloat(document.getElementById('masterPrice').value) || 0;
-        // const masterUnits = parseFloat(document.getElementById('masterUnits').value) || 1; // Removed global unit fallback
+        const masterSalePriceRaw = document.getElementById('masterSalePrice').value;
+        const masterSalePrice = masterSalePriceRaw !== '' ? parseFloat(masterSalePriceRaw) : null;
 
         // Format A Settings
         const fmtAName = document.getElementById('formatAName').value || "Single";
@@ -120,25 +121,23 @@
         let skuCounter = 1;
 
         // Helper to add row
-        const addRow = (v1, v2, v3, v4, price, units) => {
-            // Generate SKU: BaseSKU + Counter (padded 2 digits)
-            // e.g. GP-PLSX-01, GP-PLSX-02
+        const addRow = (v1, v2, v3, v4, price, units, salePrice) => {
             let sku = "";
             if (baseSku) {
                 sku = baseSku + "-" + String(skuCounter).padStart(2, '0');
                 skuCounter++;
             }
-
             addVariationRow({
                 variation: v1,
                 variation2: v2,
                 variation3: v3,
                 variation4: v4,
                 price: price,
+                salePrice: salePrice !== null ? Number(salePrice).toFixed(2) : '',
                 unitsPerCase: units,
                 image: baseImage,
                 description: baseDesc,
-                inventory: "instock", // Default for generated rows
+                inventory: "instock",
                 sku: sku
             });
         };
@@ -151,12 +150,14 @@
                 // Generate Format A (e.g. Single)
                 if (genSingle) {
                     let price = (masterPrice * fmtAUnits).toFixed(2);
-                    addRow(v1, v2, fmtAName, fmtAUnits, price, fmtAUnits);
+                    let sp = masterSalePrice !== null ? masterSalePrice * fmtAUnits : null;
+                    addRow(v1, v2, fmtAName, fmtAUnits, price, fmtAUnits, sp);
                 }
                 // Generate Format B (e.g. Case)
                 if (genCase) {
                     let price = (masterPrice * fmtBUnits).toFixed(2);
-                    addRow(v1, v2, fmtBName, fmtBUnits, price, fmtBUnits);
+                    let sp = masterSalePrice !== null ? masterSalePrice * fmtBUnits : null;
+                    addRow(v1, v2, fmtBName, fmtBUnits, price, fmtBUnits, sp);
                 }
             });
         });
