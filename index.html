@@ -58,9 +58,7 @@
   <!-- App Bar -->
   <header class="md3-top-app-bar">
     <div class="md3-top-app-bar__content">
-      <h1 class="md3-headline-medium">Order Form
-        <?= version ?>
-      </h1>
+      <h1 class="md3-headline-medium">Order Form</h1>
       <div id="header-total" class="md3-title-large" style="font-weight: bold;">Total: $0.00</div>
     </div>
     <!-- Navigation Tabs -->
@@ -75,7 +73,7 @@
         <span class="material-symbols-outlined">settings</span> Admin
       </button>
     </div>
-    <script>console.log('CLIENT_CATALOG_DEBUG_<?= version ?>:', typeof PRODUCT_CATALOG !== 'undefined' ? PRODUCT_CATALOG : 'NOT LOADED');</script>
+
   </header>
 
   <main class="md3-container">
@@ -292,9 +290,8 @@
   </script>
   <?!= include('js'); ?>
   <?!= include('admin_logic'); ?>
-  <!-- Version Footer -->
-  <div style="text-align: center; color: #aaa; font-size: 12px; padding: 20px;">
-    <?= version ?> [STABLE]
+  <div style="text-align: center; color: #bbb; font-size: 10px; padding: 20px; letter-spacing: 0.5px;">
+    <?= version ?>
   </div>
 
   <!-- Snackbar Toast -->

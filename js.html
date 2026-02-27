@@ -88,7 +88,6 @@
      * Initialize
      */
     window.onload = function () {
-        console.log("Window loaded");
 
         // Apply branding immediately (Login screen needs it too)
         applyCategoryColorsVisuals();
@@ -219,10 +218,6 @@
             return;
         }
 
-        // DEBUG: Log full client object to see what server returned
-        console.log('[onClientDataSuccess] Full client object:', client);
-        console.log('[onClientDataSuccess] Client keys:', Object.keys(client));
-        console.log('[onClientDataSuccess] allowedSections from server:', client.allowedSections);
 
         CURRENT_CLIENT = client;
         document.getElementById('client-name-input').value = client['Name'] || "";
@@ -284,7 +279,6 @@
     }
 
     function renderOrderHistory(orders) {
-        console.log("[renderOrderHistory] Called with:", orders ? orders.length : 0, "orders");
 
         let selector = document.getElementById('order-selector');
         let status = document.getElementById('history-status');
@@ -296,7 +290,6 @@
                 selector = document.getElementById('order-selector');
                 status = document.getElementById('history-status');
                 if (selector) {
-                    console.log("[renderOrderHistory] Retry successful, populating now.");
                     populateOrderDropdown(selector, status, orders);
                 } else {
                     console.error("[renderOrderHistory] Retry failed. #order-selector does not exist.");
@@ -331,8 +324,6 @@
             option.textContent = `${clientInfo}${order.id}${stateLabel} - ${dateStr} - $${Number(order.total || 0).toFixed(2)}`;
             selector.appendChild(option);
         });
-
-        console.log("[populateOrderDropdown] Added", orders.length, "options to selector.");
     }
 
     function handleOrderSelection(orderId) {
@@ -359,15 +350,12 @@
                 window.prefillData = data;
                 window.editOrderId = data.id;
 
-                // FIX v1.8.45: Use class selector, log what we find
                 const existingInputs = document.querySelectorAll('input.qty-input');
-                console.log("[editHistoricalOrder] Found inputs:", existingInputs.length);
                 if (existingInputs.length > 0) {
                     // Products already rendered, prefill now
                     prefillOrderForm(data);
                 } else {
                     // Products not yet rendered, onProductsSuccess will handle prefill
-                    console.log("[editHistoricalOrder] Deferring prefill - products not rendered yet");
                 }
 
                 showView('order-form');
@@ -398,13 +386,9 @@
                 const productCategory = superNormalize(product.category || '');
                 const catSettings = window.categorySettings ? window.categorySettings[productCategory] : null;
                 const productSection = catSettings ? (catSettings.section || '').toUpperCase() : '';
-
-                // Allow if no section defined (backward compatibility) or if section is in allowed list
                 if (!productSection) return true;
                 return allowedSections.includes(productSection);
             });
-
-            console.log(`[ProductFilter] Filtered ${products.length} -> ${filteredProducts.length} products`);
         }
 
         try {
@@ -437,14 +421,7 @@
             return;
         }
 
-        console.log("Prefilling Order Form...", data);
-
-        // DEBUG v1.8.45: Input IDs are just the SKU (no qty- prefix)
-        const allInputs = document.querySelectorAll('input.qty-input');
-        const availableSKUs = Array.from(allInputs).map(el => el.id);
-        console.log("[prefillOrderForm] Available SKUs in form:", availableSKUs.slice(0, 20), "... total:", availableSKUs.length);
-        console.log("[prefillOrderForm] SKUs from order:", Object.keys(data.items).map(s => s.replace(/^@/, '')));
-
+        // 2. Populate Quantities
         // 1. Populate Client Info
         if (data.clientName) document.getElementById('client-name-input').value = data.clientName;
         if (data.clientComments) document.getElementById('client-comments-input').value = data.clientComments;
@@ -455,7 +432,6 @@
             // FIX v1.8.45: Strip @ prefix, input IDs are just the SKU (no qty- prefix)
             const normalizedSku = sku.replace(/^@/, '');
             const input = document.getElementById(normalizedSku);
-            console.log(`[prefillOrderForm] SKU: ${sku} -> ${normalizedSku}, Input found:`, !!input);
             if (input) {
                 input.value = item.qty;
                 // Dispatch input event to trigger any listeners
@@ -496,7 +472,6 @@
         // App Theme Override from APP_STYLES named ranges
         const styles = window.appStyles || {};
         if (styles.primaryColor) {
-            console.log("DEBUG: Applying App Styles:", styles);
 
             // Core theme variables
             cssRules += `:root { \n`;
@@ -1007,10 +982,7 @@
             const rowIsSale = rowProducts.some(p => p.onSale);
             const rowAvailable = rowProducts.some(p => p.isAvailable);
 
-            // DEBUG LOGGING
-            rowProducts.forEach(p => {
-                console.log(`[DEBUG MATRIX] SKU: ${p.sku} | Name: ${p.name} | Inv: "${p.inventory}" | Avail: ${p.isAvailable}`);
-            });
+
 
             html += `<div class="grid-data-row" style="border-bottom:1px solid rgba(0,0,0,0.05); width: auto; min-width: 100%;">`;
 
@@ -1217,8 +1189,6 @@
             }
 
             // Check Availability
-            if (pCase) console.log(`[DEBUG] SKU: ${pCase.sku} | Name: ${pCase.name} | Inv: "${pCase.inventory}" | Avail: ${pCase.isAvailable}`);
-            if (pSingle) console.log(`[DEBUG] SKU: ${pSingle.sku} | Name: ${pSingle.name} | Inv: "${pSingle.inventory}" | Avail: ${pSingle.isAvailable}`);
 
             const isSingleAvail = pSingle && pSingle.isAvailable;
             const isCaseAvail = pCase && pCase.isAvailable;

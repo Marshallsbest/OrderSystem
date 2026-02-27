@@ -883,4 +883,69 @@
     .md3-snackbar.error {
         background-color: #c62828;
     }
+
+    /* ============================================================
+       MOBILE RESPONSIVE — TOP APP BAR STACKS TITLE ABOVE TABS
+       On narrow screens, title sits on its own row, tabs below.
+       ============================================================ */
+    @media (max-width: 600px) {
+
+        .md3-top-app-bar {
+            height: auto;
+            flex-direction: column;
+            align-items: stretch;
+            padding: 0;
+        }
+
+        .md3-top-app-bar__content {
+            padding: 10px 16px;
+            max-width: 100%;
+        }
+
+        /* Compact title — no wrapping */
+        .md3-headline-medium {
+            font-size: 16px;
+            line-height: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #header-total {
+            font-size: 16px;
+            margin-left: auto;
+        }
+
+        /* Tabs span full width below the title */
+        .md3-tabs {
+            padding: 0;
+            gap: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .md3-tab {
+            font-size: 11px;
+            padding: 8px 4px;
+            gap: 4px;
+            flex-direction: column;
+        }
+
+        .md3-tab .material-symbols-outlined {
+            font-size: 20px;
+        }
+
+        /* Sticky top offsets: title (~40px) + tabs (~52px) = 92px */
+        .category-details > summary,
+        .category-details[open] > summary {
+            top: 92px;
+        }
+
+        .product-group-details > summary {
+            top: 140px;
+        }
+
+        .md3-container {
+            padding: 8px;
+        }
+    }
 </style>
