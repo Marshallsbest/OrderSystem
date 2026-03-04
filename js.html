@@ -1,4 +1,4 @@
-<script>
+﻿<script>
     /**
      * Global State
      */
@@ -112,7 +112,7 @@
             } else {
                 appBar.classList.remove('scrolled-header');
             }
-        });
+        }, { passive: true });
 
         // 2. Fetch Client Data
         fetchClientData(CLIENT_ID);
@@ -266,6 +266,9 @@
             document.getElementById('collapse-fab').classList.add('hidden');
             document.getElementById('header-total').classList.add('hidden');
         }
+
+        // Recalculate sticky header offsets whenever the view/tabs change
+        if (typeof updateStickyOffsets === 'function') updateStickyOffsets();
     }
 
     /**
@@ -820,95 +823,89 @@
 
         // Initialize Accordion Animation Logic
         initAccordionAnimation();
+
+        // Set sticky top offsets based on real measured heights
+        updateStickyOffsets();
     }
+
+    // --- STICKY OFFSET CALCULATOR ---
+    // Uses getBoundingClientRect so the Google Apps Script security banner
+    // (which sits above the app bar inside the iframe) is included in the
+    // offset. A ResizeObserver watches for the banner being dismissed and
+    // recalculates automatically so headers snap to the correct position.
+    function updateStickyOffsets() {
+        const appBar = document.querySelector('.md3-top-app-bar');
+        const tabs = document.getElementById('nav-tabs');
+        if (!appBar) return;
+
+        // getBoundingClientRect().bottom = distance from viewport top to bottom
+        // of the app bar — includes any banner above it at scroll position 0.
+        const appBarBottom = Math.round(appBar.getBoundingClientRect().bottom + window.scrollY);
+        const tabsH = (tabs && !tabs.classList.contains('hidden')) ? tabs.offsetHeight : 0;
+
+        const catTop = appBarBottom + tabsH;
+        const catSummaryH = Math.round(
+            (document.querySelector('.category-details>summary') || { offsetHeight: 52 }).offsetHeight
+        );
+        const prodTop = catTop + catSummaryH;
+
+        document.documentElement.style.setProperty('--cat-sticky-top', catTop + 'px');
+        document.documentElement.style.setProperty('--prod-sticky-top', prodTop + 'px');
+    }
+
+    // Watch for layout shifts (e.g. Google security banner dismissed) and
+    // recalculate sticky offsets. Only set up once.
+    (function initStickyObserver() {
+        if (window._stickyObserverReady) return;
+        window._stickyObserverReady = true;
+
+        // ResizeObserver fires whenever the body size changes (banner dismissal
+        // makes the iframe taller, shifting everything up).
+        if (window.ResizeObserver) {
+            new ResizeObserver(() => {
+                if (typeof updateStickyOffsets === 'function') updateStickyOffsets();
+            }).observe(document.body);
+        }
+
+        // Fallback: also recalculate on window resize
+        window.addEventListener('resize', () => {
+            if (typeof updateStickyOffsets === 'function') updateStickyOffsets();
+        }, { passive: true });
+    })();
 
     // --- ACCORDION ANIMATION HELPER ---
     function initAccordionAnimation() {
-        // Remove existing listener if any (benign to re-add if careful, but best to be safe)
-        // Since this runs on render, checking a global flag or delegate
         if (window._accordionInitialized) return;
         window._accordionInitialized = true;
 
-        document.addEventListener('click', function (e) {
-            const summary = e.target.closest('summary');
-            if (!summary) return;
+        // Exclusive accordion — only one item open at each level at a time.
+        // Category level: opening a category closes every other category.
+        // Product level: opening a product group closes every other product
+        //                group WITHIN the same parent category.
+        // After opening, nudge the element smoothly into view.
+        document.addEventListener('toggle', function (e) {
+            const details = e.target;
+            if (!details || details.tagName !== 'DETAILS' || !details.open) return;
 
-            const details = summary.parentElement;
-            if (!details) return;
-
-            // Check if it's one of our animated details
-            // Look for the wrapper child
-            const wrapper = details.querySelector('.details-animation-wrapper');
-            if (!wrapper) return;
-
-            e.preventDefault(); // Prevent default browser toggle
-
-            if (details.open) {
-                // CLOSE ANIMATION
-                // 1. Set explicit height to current scrollHeight (transition start point)
-                const startHeight = wrapper.offsetHeight;
-
-                // IMPORTANT: Set overflow hidden to allow height animation
-                wrapper.style.overflow = 'hidden';
-
-                wrapper.style.height = startHeight + 'px';
-
-                // Force Reflow
-                wrapper.offsetHeight;
-
-                // 2. Set to 0
-                wrapper.style.height = '0px';
-
-                // 3. Remove open attribute after transition
-                // Use a one-time listener OR timeout safety
-                const onEnd = function () {
-                    wrapper.removeEventListener('transitionend', onEnd);
-                    clearTimeout(safetyTimer);
-                    if (wrapper.style.height === '0px') { // Check we didn't interrupt
-                        details.open = false;
-                        wrapper.style.height = ''; // Clean up
-                    }
-                };
-
-                wrapper.addEventListener('transitionend', onEnd);
-                // Safety fallback for mobile if transitionend doesn't fire
-                const safetyTimer = setTimeout(onEnd, 400);
-
-            } else {
-                // OPEN ANIMATION
-                // 1. Add open attribute
-                details.open = true;
-
-                // 2. Get target height
-                // Temporarily unrestrict height to measure
-                wrapper.style.height = 'auto';
-                const targetHeight = wrapper.scrollHeight;
-
-                // 3. Set start height to 0
-                wrapper.style.height = '0px';
-
-                // Force Reflow
-                wrapper.offsetHeight;
-
-                // 4. Animate to target
-                wrapper.style.height = targetHeight + 'px';
-
-                // 5. Clean up after transition
-                const onEnd = function () {
-                    wrapper.removeEventListener('transitionend', onEnd);
-                    clearTimeout(safetyTimer);
-                    if (wrapper.style.height !== '0px') {
-                        wrapper.style.height = 'auto'; // allow dynamic content growth
-                        // RESTORE STICKY: Allow overflow so sticky descendants work
-                        wrapper.style.overflow = 'visible';
-                    }
-                };
-
-                wrapper.addEventListener('transitionend', onEnd);
-                // Safety fallback for mobile if transitionend doesn't fire
-                const safetyTimer = setTimeout(onEnd, 400);
+            if (details.classList.contains('category-details')) {
+                // Close all OTHER category accordions
+                document.querySelectorAll('.category-details').forEach(d => {
+                    if (d !== details && d.open) d.open = false;
+                });
+            } else if (details.classList.contains('product-group-details')) {
+                // Close all OTHER product groups inside the same category
+                const parentCat = details.closest('.category-details');
+                if (parentCat) {
+                    parentCat.querySelectorAll('.product-group-details').forEach(d => {
+                        if (d !== details && d.open) d.open = false;
+                    });
+                }
             }
-        });
+
+            // Nudge into view after other panels have closed and layout settled
+            setTimeout(() => details.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+
+        }, true); // capture phase — fires before child toggle events bubble
     }
 
     // --- FLEX RENDER FUNCTIONS ---

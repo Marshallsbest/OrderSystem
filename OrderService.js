@@ -1,6 +1,6 @@
 /**
  * OrderService.gs
- * Version: v1.8.32 (Restored Production Logic)
+ * Version: v0.9.19
  * 
  * CURRENT HEADERS:
  * A(0)=Version | B(1)=INVOICE_NUMBER | C(2)=TIME STAMP | D(3)=TOTAL UNITS
@@ -125,16 +125,21 @@ function processOrder(orderData) {
 
         let pdfUrl = "";
         try {
-            pdfUrl = generateOrderPdf({
+            // PATH B: web form submission → ORDER_FORM_1-style two-page HTML PDF
+            // (Path A — native sheet export — is triggered manually from the ORDERS sheet menu)
+            pdfUrl = generateOrderFormHtmlPdf({
                 id: finalOrderId,
                 clientName: orderData.clientName || "Unknown Client",
                 clientAddress: orderData.clientAddress || "",
                 clientComments: orderData.clientComments || "",
                 date: new Date(),
                 total: totalAmount,
-                items: itemsToStaging
+                items: itemsToStaging,
+                salesRep: orderData.salesRep || ""
             });
-        } catch (e) { }
+        } catch (e) {
+            Logger.log("Order Form HTML PDF generation failed: " + e.message);
+        }
 
         SpreadsheetApp.flush();
         return { success: true, orderId: finalOrderId, total: totalAmount.toFixed(2), pdfUrl: pdfUrl };

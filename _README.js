@@ -2,8 +2,8 @@
  * ╔══════════════════════════════════════════════════════════════════╗
  * ║                     ORDER SYSTEM - README                       ║
  * ║                                                                  ║
- * ║   Version:  v0.9.18                                              ║
- * ║   Updated:  2026-02-27                                           ║
+ * ║   Version:  v0.9.21                                              ║
+ * ║   Updated:  2026-03-04                                           ║
  * ║                                                                  ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
@@ -15,7 +15,7 @@
  *  2. Select  "New deployment"
  *  3. Click the gear icon ⚙️ next to "Select type" → choose  "Web app"
  *  4. Fill in:
- *       • Description:   e.g. "Order System v0.9.18"
+ *       • Description:   e.g. "Order System v0.9.21"
  *       • Execute as:    "Me"  (your Google account)
  *       • Who has access: "Anyone"  (so clients can access without login)
  *  5. Click  "Deploy"

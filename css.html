@@ -1,5 +1,5 @@
-<style>
-    /* Version: 1.6.06 */
+﻿<style>
+    /* Version: 1.6.07 — mobile scroll fixes, exclusive accordion, dynamic sticky offsets */
     :root {
         --md-sys-color-primary: #32CD32;
         --md-sys-color-on-primary: #000000;
@@ -476,24 +476,30 @@
 
         /* STICKY WATERFALL HEADER RESTORED */
         position: sticky;
-        top: 112px;
-        /* App Bar (64) + Category (~48) */
+        top: var(--prod-sticky-top, 112px);
+        /* set by JS based on real header height */
+        /* App Bar + Category header */
         z-index: 20;
-        /* Higher than content */
+        /* Always allow vertical scroll on touch */
+        touch-action: pan-y;
+        -webkit-tap-highlight-color: transparent;
     }
 
-    /* Category Header Lift */
+    /* Category Header */
     .category-details>summary {
         transition: transform 0.2s ease, box-shadow 0.2s ease;
         position: sticky;
-        top: 64px;
+        top: var(--cat-sticky-top, 64px);
+        /* set by JS based on real header height */
         z-index: 25;
+        touch-action: pan-y;
+        -webkit-tap-highlight-color: transparent;
     }
 
     .category-details[open]>summary {
         box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2) !important;
         position: sticky;
-        top: 64px;
+        top: var(--cat-sticky-top, 64px);
         z-index: 30;
     }
 
@@ -503,6 +509,7 @@
     }
 
     .product-group-details[open]>summary {
+
         /* Force dynamic color when open */
         background-color: var(--category-color, #e0e0e0) !important;
         color: #000;
@@ -696,10 +703,10 @@
     }
 
     /* ANIMATION WRAPPER */
-    /* Must have overflow:hidden to animate height */
+    /* overflow:hidden removed: it caused mobile scroll-lock by trapping touch
+       events mid-animation. Native <details> handles show/hide without it. */
     .details-animation-wrapper {
-        overflow: hidden;
-        transition: height 0.35s ease-out;
+        overflow: visible;
     }
 
     /* --- TABS --- */
@@ -884,7 +891,7 @@
         background-color: #c62828;
     }
 
-    
+
     /* Version tag in header title */
     .version-tag {
         font-size: 10px;
@@ -894,7 +901,8 @@
         vertical-align: middle;
         margin-left: 4px;
     }
-/* ============================================================
+
+    /* ============================================================
        MOBILE RESPONSIVE — TOP APP BAR STACKS TITLE ABOVE TABS
        On narrow screens, title sits on its own row, tabs below.
        ============================================================ */
@@ -944,18 +952,34 @@
             font-size: 20px;
         }
 
-        /* Sticky top offsets: title (~40px) + tabs (~52px) = 92px */
-        .category-details > summary,
-        .category-details[open] > summary {
-            top: 92px;
-        }
-
-        .product-group-details > summary {
-            top: 140px;
-        }
+        /* Sticky top: controlled by --cat-sticky-top / --prod-sticky-top CSS variables
+           set by JS in updateStickyOffsets(). No hardcoded override needed here. */
 
         .md3-container {
             padding: 8px;
+        }
+    }
+
+    /* Touch device: disable hover transforms that cause scroll jank on mobile */
+    @media (hover: none) and (pointer: coarse) {
+
+        .category-details>summary:hover,
+        .product-group-details:hover {
+            transform: none !important;
+        }
+
+        .product-group-details[open] {
+            transform: none !important;
+        }
+
+        .matrix-scroll-view,
+        .table-container {
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+        }
+
+        #product-list {
+            overscroll-behavior: contain;
         }
     }
 </style>

@@ -65,6 +65,19 @@
             populateVarNameDropdowns();
         }).getVariationGroups();
 
+        // Load Order Form Templates into the template selector
+        google.script.run.withSuccessHandler(templates => {
+            const sel = document.getElementById('orderFormNumber');
+            if (!sel || !templates || templates.length === 0) return;
+            sel.innerHTML = '';
+            templates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.formNum;
+                opt.textContent = t.label;
+                sel.appendChild(opt);
+            });
+        }).getOrderFormTemplates();
+
         // Auto-derive Reference Character from SKU (strip spaces and hyphens)
         const skuInput = document.getElementById('baseSku');
         if (skuInput) {
@@ -364,6 +377,7 @@
             if (v1 && price) {
                 payload.push({
                     brand, name, category, ref, baseSku,
+                    orderFormNumber: document.getElementById('orderFormNumber').value || '1',
                     // Pass Metadata for Parent Row creation
                     var1Name: document.getElementById('var1Name').value,
                     var2Name: document.getElementById('var2Name').value,

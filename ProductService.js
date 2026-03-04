@@ -126,6 +126,7 @@ function getProductCatalog() {
             node: nodeType,
             orderQty: map.orderQty > -1 ? parseFloat(row[map.orderQty]) || 0 : 0,
             pdfRangeName: map.pdfRangeName > -1 ? String(row[map.pdfRangeName]).trim() : "",
+            orderFormNumber: map.orderFormNumber > -1 ? String(row[map.orderFormNumber]).trim() : "",
 
             // Inventory Mapping - Defaults to Column 0 (A) if header not found
             inventory: map.inventory > -1 ? row[map.inventory] : (row[0] || "")
@@ -205,6 +206,7 @@ function getProductHeaderMap() {
         { key: 'parentName', aliases: ['parent name', 'parent', 'group name'] },
         { key: 'zoneVariation', aliases: ['zone variation name', 'zone variation', 'zone'] },
         { key: 'pdfRangeName', aliases: ['pdf range name', 'range name', 'range code', 'rn'] },
+        { key: 'orderFormNumber', aliases: ['output form', 'order form', 'order form #', 'order form number', 'form number', 'form #', 'form', 'order form no', 'of#'] },
 
         // 2. STRUCTURAL / CORE KEYS
         { key: 'node', aliases: ['product node', 'node', 'type', 'node type', 'p/c', 'status type', 'classification'] },
@@ -316,9 +318,10 @@ function addProductBatch(newItems) {
         setP('textColor', parentTextColor);
 
         setP('ref', first.ref);
-        setP('zoneVariation', first.zoneVariation || "");
+        setP('zoneVariation', first.zoneVariation || '');
         setP('commissionRate', first.commissionRate || 1.5);
         setP('saleCommission', first.saleCommission || 1.0);
+        setP('orderFormNumber', first.orderFormNumber || '1'); // which ORDER_FORM template
 
         // FIX: Variation HEADER Names in Parent Row
         // The frontend sends these as var1Name, var2Name etc in the first item payload?
@@ -375,7 +378,8 @@ function addProductBatch(newItems) {
         set('onSale', item.onSale);
 
         // FIX: "All child products should not as 'Instock' in column A"
-        set('inventory', item.inventory || "0");
+        set('inventory', item.inventory || '0');
+        set('orderFormNumber', item.orderFormNumber || first.orderFormNumber || '1');
 
         rowsToAdd.push(row);
     });
@@ -435,7 +439,23 @@ function addProductBatch(newItems) {
             try {
                 generateOrderPlacerForm(first.name, true);
             } catch (e) {
-                console.error("Auto-Grid Error: " + e.message);
+                console.error('Auto-Grid Error: ' + e.message);
+            }
+
+            // Add product row to the ORDER_FORM template sheet
+            try {
+                const formNum = String(first.orderFormNumber || '1').trim();
+                const formSheet = getOrderFormSheetName(formNum);
+                addProductToOrderFormSheet({
+                    ref: first.ref,
+                    name: first.name,
+                    category: first.category,
+                    price: newItems[0] && newItems[0].price,
+                    variation3: newItems[0] && newItems[0].variation3,
+                    variation4: newItems[0] && newItems[0].variation4,
+                }, formSheet);
+            } catch (e) {
+                Logger.log('addProductToOrderFormSheet call failed: ' + e.message);
             }
         }
     }

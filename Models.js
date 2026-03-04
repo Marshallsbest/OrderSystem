@@ -159,6 +159,15 @@ function createProductModel(rawData, parentModel, rowIndex) {
         zoneVariation: rawData.zoneVariation || (parentModel ? parentModel.zoneVariation : ""),
         orderQty: rawData.orderQty || 0,
 
+        // Order Form Routing — which ORDER_FORM_N sheet this product belongs to
+        // Inherit from parent if blank on child row. Defaults to "1" (ORDER_FORM_1).
+        orderFormNumber: (function () {
+            const raw = String(rawData.orderFormNumber || "").trim();
+            if (raw) return raw;
+            if (parentModel && parentModel.orderFormNumber) return parentModel.orderFormNumber;
+            return "1"; // default to ORDER_FORM_1
+        })(),
+
         // Metadata
         timestamp: new Date().getTime(),
         version: "1.7.03"
