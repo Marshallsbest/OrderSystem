@@ -24,7 +24,6 @@
  */
 function runInstaller() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ui = SpreadsheetApp.getUi();
 
     try {
         Logger.log('=== ORDER SYSTEM INSTALLER STARTED ===');
@@ -35,8 +34,8 @@ function runInstaller() {
         _createSheet_Products(ss);
         _createSheet_Orders(ss);
         _createSheet_OrdersExport(ss);
-        _createSheet_OrderForm(ss, 1);   // ORDER_FORM_1
-        _createSheet_OrderForm(ss, 2);   // ORDER_FORM_2 (spare)
+        _createSheet_OrderForm(ss, 1);
+        _createSheet_OrderForm(ss, 2);
         _createSheet_DailyOperations(ss);
         _createSheet_Welcome(ss);
 
@@ -45,22 +44,14 @@ function runInstaller() {
         _protectSystemSheets(ss);
         _setSheetOrder(ss);
 
-        Logger.log('=== ORDER SYSTEM INSTALLER COMPLETE ===');
+        // Mark installation complete so onOpen() shows the full menu next time
+        PropertiesService.getScriptProperties().setProperty('ORDER_SYSTEM_INSTALLED', 'true');
 
-        ui.alert(
-            '✅ Order System Installed',
-            'All sheets, named ranges, and default settings have been created.\n\n' +
-            'Next steps:\n' +
-            '1. Set your ADMIN_LOGIN password in the SETTINGS sheet (or name the cell ADMIN_LOGIN).\n' +
-            '2. Add your products to the PRODUCTS sheet.\n' +
-            '3. Add your clients to the CLIENT DATA sheet.\n' +
-            '4. Deploy as a Web App from Extensions → Apps Script → Deploy.',
-            ui.ButtonSet.OK
-        );
+        Logger.log('=== ORDER SYSTEM INSTALLER COMPLETE ===');
 
     } catch (e) {
         Logger.log('INSTALLER ERROR: ' + e.message + '\n' + e.stack);
-        ui.alert('❌ Installer Error', e.message, ui.ButtonSet.OK);
+        throw e;  // re-throw so _runInstallerFromSidebar can catch and report it
     }
 }
 
@@ -565,31 +556,81 @@ function _setSheetOrder(ss) {
 
 
 // ─────────────────────────────────────────────────────────────
-//  ADD-ON HOOKS (for when this runs as a Google Workspace Add-on)
+//  ADD-ON HOOKS  (smart menu — setup wizard vs. full operational menu)
 // ─────────────────────────────────────────────────────────────
 
 /**
  * onInstall — fires automatically when a user installs the add-on.
- * Runs the installer and adds the Order System menu.
+ * Opens the setup wizard sidebar immediately on first install.
  */
 function onInstall(e) {
     onOpen(e);
-    runInstaller();
+    _showSetupWizard();
 }
 
 /**
  * onOpen — fires every time the spreadsheet is opened.
- * Adds the Order System menu.
+ *
+ * NOT YET INSTALLED → one menu item: "🚀 Set Up Order System…"
+ * ALREADY INSTALLED  → full operational menu.
+ *
+ * The flag ORDER_SYSTEM_INSTALLED is written by runInstaller().
+ * Change createAddonMenu() → createMenu('Order System') for editor add-ons.
  */
 function onOpen(e) {
-    SpreadsheetApp.getUi()
-        .createAddonMenu()        // Use createMenu('Order System') for editor add-ons
-        .addItem('Launch Order Form', 'showOrderFormDialog')
-        .addItem('Add / Edit Products', 'showAddProductSidebar')
-        .addSeparator()
-        .addItem('📄 Generate PDF for Selected Order', 'generateSelectedOrderPdf')
-        .addSeparator()
-        .addItem('⚙️  Run Installer / Repair', 'runInstaller')
-        .addItem('📊 Refresh Daily Dashboard', 'refreshDailyOperationsDashboard')
-        .addToUi();
+    const isInstalled = PropertiesService
+        .getScriptProperties()
+        .getProperty('ORDER_SYSTEM_INSTALLED') === 'true';
+
+    const ui = SpreadsheetApp.getUi();
+    const menu = ui.createAddonMenu();
+
+    if (!isInstalled) {
+        menu.addItem('🚀 Set Up Order System…', '_showSetupWizard');
+    } else {
+        menu
+            .addItem('Launch Order Form', 'showOrderFormDialog')
+            .addItem('Add / Edit Products', 'showAddProductSidebar')
+            .addSeparator()
+            .addItem('📄 Generate PDF for Selected Order', 'generateSelectedOrderPdf')
+            .addSeparator()
+            .addItem('📊 Refresh Daily Dashboard', 'refreshDailyOperationsDashboard')
+            .addSeparator()
+            .addItem('⚙️  Re-run Installer / Repair', '_showSetupWizard');
+    }
+
+    menu.addToUi();
+}
+
+
+// ─────────────────────────────────────────────────────────────
+//  SIDEBAR HELPERS  (called from installer_sidebar.html)
+// ─────────────────────────────────────────────────────────────
+
+/** Opens the step-by-step setup wizard sidebar (public — bound to menu). */
+function _showSetupWizard() {
+    const html = HtmlService
+        .createHtmlOutputFromFile('installer_sidebar')
+        .setTitle('Order System — Setup Wizard')
+        .setWidth(320);
+    SpreadsheetApp.getUi().showSidebar(html);
+}
+
+/**
+ * Called by the sidebar "Run Setup Now" button via google.script.run.
+ * Returns { success, error } so the sidebar can show the correct state.
+ */
+function _runInstallerFromSidebar() {
+    try {
+        runInstaller();
+        return { success: true };
+    } catch (e) {
+        Logger.log('_runInstallerFromSidebar error: ' + e.message);
+        return { success: false, error: e.message };
+    }
+}
+
+/** Returns current version for display in the sidebar header. */
+function _getInstallerVersion() {
+    return typeof CURRENT_VERSION !== 'undefined' ? CURRENT_VERSION : 'v0.9.21';
 }
