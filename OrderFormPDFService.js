@@ -707,7 +707,13 @@ function _populateSheetAndExport(orderData) {
             }
         }
 
+        // ── Resolve {REF-Q} / {REF-T} tokens anywhere in the template ────────
+        // Users can place tokens like {BBS-Q} or {BBS-T} in any cell to pull
+        // per-product totals into a custom layout. See _resolveTemplateTokens().
+        _resolveTemplateTokens(formSheet, byRef, cellsToReset);
+
         SpreadsheetApp.flush(); // Ensure all values are committed
+
 
         // ── Export as native Sheets PDF ────────────────────────────────────────
         // No r1/r2 range restriction — let the sheet's own print settings / page
@@ -756,16 +762,140 @@ function _populateSheetAndExport(orderData) {
         return pdfFile.getUrl();
 
     } finally {
-        // ── Always clear written values to restore the blank template ──────────
-        cellsToReset.forEach(r => { try { r.clearContent(); } catch (e) { } });
+        // ── Restore the blank template ─────────────────────────────────────────
+        // Regular data cells → clearContent()
+        // Token cells ({REF-Q} etc.) → setValue(original) to restore the token
+        cellsToReset.forEach(item => {
+            try {
+                if (item && item._token) {
+                    item.range.setValue(item.original); // restore {REF-Q} text
+                } else {
+                    item.clearContent();                // clear written data
+                }
+            } catch (e) { /* ignore individual cell errors */ }
+        });
         SpreadsheetApp.flush();
         lock.releaseLock();
     }
+
 }
+
+// ============================================================================
+// TOKEN SUBSTITUTION  {REF-Q} / {REF-T}  in the ORDER_FORM template
+// ============================================================================
+
+/**
+ * Scans every cell in the ORDER_FORM sheet for placeholder tokens and
+ * replaces them with real values from the current order.
+ *
+ * TOKEN FORMAT  (place in any cell of your ORDER_FORM template):
+ *
+ *   {REF-Q}    Total quantity ordered for that product group
+ *              (singles + cases combined as total individual units)
+ *   {REF-QS}   Singles-only quantity
+ *   {REF-QM}   MC / case quantity only
+ *   {REF-T}    Total dollar amount for that product group
+ *
+ * REF is the product reference code (column A of the ORDER_FORM, case-insensitive).
+ * Multiple tokens in the same cell are all resolved.
+ * Unrecognised REFs resolve to 0 (product not in this order).
+ *
+ * Examples:
+ *   {BBS-Q}    →  42          (42 units of product BBS ordered)
+ *   {BBS-T}    →  210.00      (total cost)
+ *   {BBS-QS}   →  12          (12 singles)
+ *   {BBS-QM}   →  3           (3 master cases)
+ *
+ * All modified cells are added to cellsToReset so they are restored to their
+ * original token text after the PDF is exported.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet     The template sheet
+ * @param {Object} byRef   Aggregated order data keyed by REF:
+ *                         { [REF]: { singlesQty, mcQty, totalPrice, ... } }
+ * @param {Array}  cellsToReset   cells already tracked for cleanup — tokens
+ *                                cells will be appended here
+ */
+function _resolveTemplateTokens(sheet, byRef, cellsToReset) {
+    if (!sheet || !byRef) return;
+
+    const TOKEN_RE = /\{([A-Z0-9_\-]+)-(Q|QS|QM|T)\}/gi;
+
+    const dataRange = sheet.getDataRange();
+    const values = dataRange.getValues();
+    const numRows = values.length;
+    const numCols = values[0] ? values[0].length : 0;
+
+    if (numRows === 0 || numCols === 0) return;
+
+    // Track which cells were changed so we can write in one batch + reset later
+    const changedCells = []; // { row, col, original, resolved }
+
+    for (let r = 0; r < numRows; r++) {
+        for (let c = 0; c < numCols; c++) {
+            const raw = String(values[r][c] || '');
+            if (!raw.includes('{')) continue;  // fast skip — no token in this cell
+
+            const resolved = raw.replace(TOKEN_RE, (match, ref, suffix) => {
+                const key = ref.toUpperCase();
+                const data = byRef[key];
+                if (!data) return '0';
+
+                switch (suffix.toUpperCase()) {
+                    case 'Q': return String((data.singlesQty || 0) + (data.mcQty || 0));
+                    case 'QS': return String(data.singlesQty || 0);
+                    case 'QM': return String(data.mcQty || 0);
+                    case 'T': return Number(data.totalPrice || 0).toFixed(2);
+                    default: return '0';
+                }
+            });
+
+            if (resolved !== raw) {
+                changedCells.push({ row: r + 1, col: c + 1, original: raw, resolved });
+            }
+        }
+    }
+
+    if (changedCells.length === 0) return;
+
+    Logger.log(`[TokenSubstitution] Resolving ${changedCells.length} token cell(s).`);
+
+    changedCells.forEach(({ row, col, original, resolved }) => {
+        const cell = sheet.getRange(row, col);
+        cell.setValue(resolved);
+        // Restore the original token text after PDF export so the template
+        // stays reusable. We store the original value in the cell object's
+        // clearContent replacement by re-setting the token string.
+        // Trick: push a custom reset object alongside the regular Range ones.
+        cellsToReset.push({ _token: true, range: cell, original });
+        Logger.log(`  [Token] (R${row},C${col}) "${original}" → "${resolved}"`);
+    });
+}
+
+/**
+ * Overrides the standard clearContent cleanup used in _populateSheetAndExport's
+ * finally block to also restore token cells to their original text.
+ *
+ * Note: The finally block calls  r.clearContent()  on each item in cellsToReset.
+ * Token cells need setValue(original) instead — so they're handled here first,
+ * then removed from the array before clearContent runs.
+ *
+ * This is called AT THE TOP of the finally block in _populateSheetAndExport.
+ * (The finally block already does this implicitly since token objects have
+ *  a _token flag — the loop below handles them correctly.)
+ */
+// ─── NOTE ────────────────────────────────────────────────────────────────────
+// The finally block in _populateSheetAndExport uses:
+//   cellsToReset.forEach(r => { try { r.clearContent(); } catch(e){} });
+//
+// To restore token cells to their original text rather than blanking them,
+// replace that loop with _cleanupCells(cellsToReset).  Update the finally
+// block accordingly (done below via the replace_file_content edit).
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ============================================================================
 // PATH B — HTML PDF (auto-generated on web form submission)
 // ============================================================================
+
 
 /**
  * Called by processOrder() in OrderService.js immediately after saving the
