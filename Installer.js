@@ -325,18 +325,56 @@ function _setupNamedRanges(ss) {
         return -1;
     };
 
-    // Map: named range name → SETTINGS key whose VALUE cell (col B) it should point to
+    // Map: named range name → SETTINGS key whose VALUE cell (col B) it points to
     const rangeMap = {
+        // ── Admin / App ───────────────────────────────────────────────────────
         'ADMIN_LOGIN': 'ADMIN_LOGIN',
         'CFG_SALES_REP': 'CFG_SALES_REP',
+        'CFG_COL_CONTACT': 'CFG_COL_CONTACT',
+        'ENABLE_SALES': 'ENABLE_SALES',
+
+        // ── Branding ──────────────────────────────────────────────────────────
         'PRIMARY_COLOUR': 'PRIMARY_COLOUR',
         'PRIMARY_COLOUR_TEXT': 'PRIMARY_COLOUR_TEXT',
         'SECONDARY_COLOUR': 'SECONDARY_COLOUR',
         'SECONDARY_COLOUR_TEXT': 'SECONDARY_COLOUR_TEXT',
+
+        // ── Section Names ─────────────────────────────────────────────────────
         'SECTION_A': 'SECTION_A_NAME',
         'SECTION_B': 'SECTION_B_NAME',
         'SECTION_C': 'SECTION_C_NAME',
         'SECTION_D': 'SECTION_D_NAME',
+
+        // ── Product Column Mapping ────────────────────────────────────────────
+        'PRODUCT_PAGE': 'PRODUCT_PAGE',
+        'PRODUCT_SKU': 'PRODUCT_SKU',
+        'PRODUCT_REFERENCE_CHARACTER': 'PRODUCT_REFERENCE_CHARACTER',
+        'PRODUCT_PRODUCT_NODE': 'PRODUCT_PRODUCT_NODE',
+        'PRODUCT_PARENT_NAME': 'PRODUCT_PARENT_NAME',
+        'PRODUCT_PRODUCT_NAME': 'PRODUCT_PRODUCT_NAME',
+        'PRODUCT_VARIATION1_COL': 'PRODUCT_VARIATION1_COL',
+        'PRODUCT_VARIATION2_COL': 'PRODUCT_VARIATION2_COL',
+        'PRODUCT_VARIATION3_COL': 'PRODUCT_VARIATION3_COL',
+        'PRODUCT_VARIATION4_COL': 'PRODUCT_VARIATION4_COL',
+        'PRODUCT_CATEGORY': 'PRODUCT_CATEGORY',
+        'PRODUCT_PRICE': 'PRODUCT_PRICE',
+        'PRODUCT_SALE_PRICE': 'PRODUCT_SALE_PRICE',
+        'PRODUCT_DESCRIPTION': 'PRODUCT_DESCRIPTION',
+        'PRODUCT_IMAGE_URL': 'PRODUCT_IMAGE_URL',
+        'PRODUCT_SKU_QTY': 'PRODUCT_SKU_QTY',
+        'PRODUCT_HEADER_COLOUR': 'PRODUCT_HEADER_COLOUR',
+        'PRODUCT_HEADER_TEXT_COLOUR': 'PRODUCT_HEADER_TEXT_COLOUR',
+        'PRODUCT_INVENTORY': 'PRODUCT_INVENTORY',
+
+        // ── URLs / Links ──────────────────────────────────────────────────
+        'WEB_APP_URL': 'WEB_APP_URL',
+        'PDF_FOLDER_URL': 'PDF_FOLDER_URL',
+        'QRCODEURL': 'QRCODEURL',
+        'QR_CODE_GENERATOR_URL': 'QR_CODE_GENERATOR_URL',
+
+        // ── Order Form Template Mapping ──────────────────────────────────
+        'FORM_1_SHEET': 'FORM_1_SHEET',
+        'FORM_2_SHEET': 'FORM_2_SHEET',
     };
 
     Object.entries(rangeMap).forEach(([rangeName, settingsKey]) => {
@@ -438,66 +476,103 @@ function _setupVariationGroupsRange(ss, settingsSheet, data) {
  */
 function _getDefaultSettings() {
     return [
-        // ── App Identity ──────────────────────────────────────────
+        // ── App Identity ──────────────────────────────────────────────────────
         ['APP_TITLE', 'My Order System'],
-        ['WEB_APP_URL', ''],   // Paste your deployed Web App URL here
+        ['WEB_APP_URL', ''],
+        ['PDF_FOLDER_URL', ''],
+        ['QRCODEURL', ''],
+        ['QR_CODE_GENERATOR_URL', 'https://chart.googleapis.com/chart?chs=300x300&cht=qr&chl='],
 
-        // ── Admin Access ──────────────────────────────────────────
+        // ── Admin / Sales ─────────────────────────────────────────────────────
         ['ADMIN_LOGIN', 'CHANGE_ME'],  // ⚠️ Change before sharing!
+        ['ENABLE_SALES', 'TRUE'],
+        ['CFG_SALES_REP', 'Sales Rep Name'],
+        ['CFG_COL_REP', 'Sales Rep'],
+        ['CFG_COL_CONTACT', 'Contact Name'],
 
-        // ── Branding ──────────────────────────────────────────────
+        // ── Branding ─────────────────────────────────────────────────────────
         ['PRIMARY_COLOUR', '#32CD32'],
         ['PRIMARY_COLOUR_TEXT', '#000000'],
         ['SECONDARY_COLOUR', '#625b71'],
         ['SECONDARY_COLOUR_TEXT', '#ffffff'],
 
-        // ── Sales Rep / Commission ────────────────────────────────
-        ['CFG_SALES_REP', 'Sales Rep Name'],
-        ['CFG_COL_REP', 'Sales Rep'],
-        ['CFG_COL_CONTACT', 'Contact Name'],
-
-        // ── Section Names (shown in order form tabs) ───────────────
+        // ── Section Names ─────────────────────────────────────────────────────
         ['SECTION_A_NAME', 'Section A'],
         ['SECTION_B_NAME', 'Section B'],
         ['SECTION_C_NAME', 'Section C'],
         ['SECTION_D_NAME', 'Section D'],
 
-        // ── Order Form Template Sheet Mapping ─────────────────────
+        // ── Order Form Sheet Mapping ──────────────────────────────────────────
         ['FORM_1_SHEET', 'ORDER_FORM_1'],
         ['FORM_2_SHEET', 'ORDER_FORM_2'],
 
-        // ── Client Types (used for dropdown in admin) ─────────────
-        ['CLIENT_TYPES', '— values listed below —'],
+        // ── Product Data Column Mapping ───────────────────────────────────────
+        // Values = the column HEADER name in your PRODUCTS sheet.
+        ['PRODUCT_PAGE', 'Order Form #'],
+        ['PRODUCT_SKU', 'SKU'],
+        ['PRODUCT_REFERENCE_CHARACTER', 'REF'],
+        ['PRODUCT_PRODUCT_NODE', 'Node'],
+        ['PRODUCT_PARENT_NAME', 'Parent Name'],
+        ['PRODUCT_PRODUCT_NAME', 'Product Name'],
+        ['PRODUCT_VARIATION1_COL', 'Variation 1'],
+        ['PRODUCT_VARIATION2_COL', 'Variation 2'],
+        ['PRODUCT_VARIATION3_COL', 'Variation 3'],
+        ['PRODUCT_VARIATION4_COL', 'Variation 4'],
+        ['PRODUCT_CATEGORY', 'Category'],
+        ['PRODUCT_PRICE', 'Price'],
+        ['PRODUCT_SALE_PRICE', 'Sale Price'],
+        ['PRODUCT_DESCRIPTION', 'Description'],
+        ['PRODUCT_IMAGE_URL', 'Image URL'],
+        ['PRODUCT_SKU_QTY', 'Units per Case'],
+        ['PRODUCT_HEADER_COLOUR', 'Color'],
+        ['PRODUCT_HEADER_TEXT_COLOUR', ''],
+        ['PRODUCT_INVENTORY', 'Status'],
+
+        // ── Client Types ──────────────────────────────────────────────────────
+        ['CLIENT_TYPES', '— list one type per row in column B below —'],
         ['', 'Retail'],
         ['', 'Wholesale'],
         ['', 'Distributor'],
         ['', 'Online'],
         ['', 'Other'],
 
-        // ── Colour Format Definitions ─────────────────────────────
-        // Named colors that can be used instead of hex codes in category settings
-        // Format: Color Name | Hex Value | Text Color
-        ['COLOUR_FORMAT_DEFINITIONS', '— color name, hex, text color —'],
-        ['Orange', '#FFA500', '#000000'],
-        ['Teal', '#008080', '#ffffff'],
-        ['Navy', '#003366', '#ffffff'],
-        ['Purple', '#6A0DAD', '#ffffff'],
-        ['Green', '#32CD32', '#000000'],
-        ['Red', '#cc0000', '#ffffff'],
-        ['Blue', '#1a73e8', '#ffffff'],
-        ['Grey', '#888888', '#ffffff'],
-        ['Gold', '#FFD700', '#000000'],
+        // ── Category Settings ─────────────────────────────────────────────────
+        // Headers: Category Name | Color | Text Colour | SECTION | Display Order
+        ['CATEGORY_SETTINGS', '— Category Name | Color | Text Colour | SECTION | Display Order —'],
+        ['Category Name', 'Color', 'Text Colour', 'SECTION', 'Display Order'],
+        ['Sample Category', '#1a73e8', '#ffffff', 'A', '1'],
 
-        // ── Variation Groups & Values ─────────────────────────────
-        // Format: Group Name | Variation Number | Values (comma separated)
-        ['VARIATION_GROUPS_AND_VALUES', '— group name, var#, values —'],
+        // ── Variation Groups and Values ───────────────────────────────────────
+        // Headers: Group Name | Variation # | Group Options
+        ['VARIATION_GROUPS_AND_VALUES', '— Group Name | Variation # | Group Options (comma separated) —'],
+        ['Group Name', 'Variation #', 'Group Options'],
         ['Strengths', '1', '10mg, 20mg, 50mg'],
         ['Sizes', '2', 'Small, Medium, Large'],
         ['Flavours', '3', 'Original, Mint, Berry'],
 
-        // ── Category Settings table ───────────────────────────────
-        // (Managed in the SETTINGS sheet directly — rows below CATEGORIES header)
-        ['CATEGORIES', '— name, colour, text colour, order, sale active, section —'],
+        // ── Usable Colours by Name ────────────────────────────────────────────
+        // Headers: Name | Background | Text Colour
+        ['COLOUR_FORMAT_DEFINITIONS', '— Name | Background | Text Colour —'],
+        ['Name', 'Background', 'Text Colour'],
+        ['Red', '#E53935', '#FFFFFF'],
+        ['Blue', '#1E88E5', '#FFFFFF'],
+        ['Green', '#43A047', '#FFFFFF'],
+        ['Orange', '#FFA500', '#FFFFFF'],
+        ['Purple', '#7B1FA2', '#FFFFFF'],
+        ['Teal', '#00897B', '#FFFFFF'],
+        ['Navy', '#1A237E', '#FFFFFF'],
+        ['Pink', '#E91E63', '#FFFFFF'],
+        ['Yellow', '#FDD835', '#222222'],
+        ['Grey/Gray', '#757575', '#FFFFFF'],
+        ['Gold', '#FFB300', '#222222'],
+        ['Coral', '#FF7043', '#FFFFFF'],
+        ['Indigo', '#3949AB', '#FFFFFF'],
+        ['Lime', '#7CB342', '#FFFFFF'],
+        ['Cyan', '#00ACC1', '#FFFFFF'],
+        ['Maroon', '#880E4F', '#FFFFFF'],
+        ['Olive', '#827717', '#FFFFFF'],
+        ['Black', '#212121', '#FFFFFF'],
+        ['White', '#FFFFFF', '#222222'],
     ];
 }
 
