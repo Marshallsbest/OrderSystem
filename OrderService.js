@@ -21,35 +21,34 @@ const ORDER_COL = {
 };
 
 function processOrder(orderData) {
-    try {
-        const lock = LockService.getScriptLock();
-        lock.waitLock(30000);
+    const lock = LockService.getScriptLock();
+    try { lock.waitLock(30000); }
+    catch (e) { throw new Error('System busy — please try again in a moment.'); }
 
+    let finalOrderId = '';
+    let totalAmount = 0;
+    let itemsToStaging = [];
+
+    try {
         const orderSheet = getSheet(SHEET_NAMES.ORDERS);
         const client = getClientById(orderData.clientId);
-        if (!client) throw new Error("Client not found: " + orderData.clientId);
+        if (!client) throw new Error('Client not found: ' + orderData.clientId);
 
         const productCatalog = getProductCatalog();
         const orderModel = createOrderModel(orderData);
 
-        let totalAmount = 0;
         let totalPieces = 0;
         let totalCommission = 0;
-        let hasSale = false;
-        const itemsToStaging = [];
 
         orderModel.line_items.forEach(item => {
             if (item.quantity > 0) {
-                const normalizedItemSku = String(item.sku || "").trim().toUpperCase();
-                const product = productCatalog.find(p => String(p.sku || "").trim().toUpperCase() === normalizedItemSku);
+                const normalizedItemSku = String(item.sku || '').trim().toUpperCase();
+                const product = productCatalog.find(p => String(p.sku || '').trim().toUpperCase() === normalizedItemSku);
                 if (product) {
                     const isProductOnSale = product.onSale && (product.salePrice > 0);
                     const finalPrice = isProductOnSale ? product.salePrice : product.price;
-                    if (isProductOnSale) hasSale = true;
                     totalAmount += finalPrice * item.quantity;
 
-                    // Piece Count & Commission Multiplier
-                    // Directive: Use unitsMultiplier (Variation 4) for pieces and commission
                     const mult = parseFloat(product.unitsMultiplier) || 1;
                     totalPieces += mult * item.quantity;
 
@@ -59,36 +58,27 @@ function processOrder(orderData) {
 
                     totalCommission += rate * item.quantity * mult;
 
-                    itemsToStaging.push({
-                        sku: item.sku,
-                        quantity: item.quantity,
-                        price: finalPrice
-                    });
+                    itemsToStaging.push({ sku: item.sku, quantity: item.quantity, price: finalPrice });
                 }
             }
         });
 
-        if (itemsToStaging.length === 0) throw new Error("No items in order");
+        if (itemsToStaging.length === 0) throw new Error('No items in order');
 
         const targetRow = orderSheet.getLastRow() + 1;
 
-        // Determine version label (Original vs Rev:X)
-        let versionLabel = "Original";
-        let finalOrderId = orderModel.id;
+        // Revision tracking
+        let versionLabel = 'Original';
+        finalOrderId = orderModel.id;
 
-        // Check if this is an edit of an existing order
         const editingOrderId = orderData.editOrderId || orderData.originalOrderId;
         if (editingOrderId) {
-            // This is a revision - count existing revisions for this order
             const allData = orderSheet.getDataRange().getValues();
-            const baseInvoice = editingOrderId.replace(/^Rev:\d+\s*/, '').trim(); // Strip any existing Rev: prefix
-
+            const baseInvoice = editingOrderId.replace(/^Rev:\d+\s*/, '').trim();
             let revisionCount = 0;
             for (let i = 1; i < allData.length; i++) {
                 const rowVersion = String(allData[i][ORDER_COL.VERSION] || '');
                 const rowInvoice = String(allData[i][ORDER_COL.INVOICE_NUMBER] || '');
-
-                // Count rows that are revisions of this order OR the original
                 if (rowInvoice === baseInvoice || rowInvoice === editingOrderId) {
                     if (rowVersion.startsWith('Rev:')) {
                         const revNum = parseInt(rowVersion.replace('Rev:', '')) || 0;
@@ -96,59 +86,61 @@ function processOrder(orderData) {
                     }
                 }
             }
-
-            versionLabel = "Rev:" + (revisionCount + 1);
-            finalOrderId = baseInvoice; // Keep same invoice number for tracking
+            versionLabel = 'Rev:' + (revisionCount + 1);
+            finalOrderId = baseInvoice;
         }
 
-        // Build row matching current headers
+        // Build and write order row
         const baseRowData = [
-            versionLabel,                      // A(0): Version (Original or Rev:X)
-            finalOrderId,                      // B(1): INVOICE_NUMBER
-            new Date(),                        // C(2): TIME STAMP
-            totalPieces,                       // D(3): TOTAL UNITS
-            totalCommission,                   // E(4): COMISSION
-            totalAmount,                       // F(5): TOTAL
-            orderData.clientName || "Unknown", // G(6): CLIENT
-            orderData.clientComments || "",    // H(7): COMMENT
-            orderData.clientAddress || ""      // I(8): ADDRESS
+            versionLabel,
+            finalOrderId,
+            new Date(),
+            totalPieces,
+            totalCommission,
+            totalAmount,
+            orderData.clientName || 'Unknown',
+            orderData.clientComments || '',
+            orderData.clientAddress || ''
         ];
-
         const itemStrings = itemsToStaging.map(item => {
             const product = productCatalog.find(p => p.sku === item.sku);
             const isSaleFlag = (product && product.onSale) ? 'T' : 'F';
             return `[${item.quantity}|@${item.sku}|$${item.price.toFixed(2)}|${isSaleFlag}]`;
         });
 
-        const finalRowData = baseRowData.concat(itemStrings);
-        orderSheet.getRange(targetRow, 1, 1, finalRowData.length).setValues([finalRowData]);
-
-        let pdfUrl = "";
-        try {
-            // PATH B: web form submission → ORDER_FORM_1-style two-page HTML PDF
-            // (Path A — native sheet export — is triggered manually from the ORDERS sheet menu)
-            pdfUrl = generateOrderFormHtmlPdf({
-                id: finalOrderId,
-                clientName: orderData.clientName || "Unknown Client",
-                clientAddress: orderData.clientAddress || "",
-                clientComments: orderData.clientComments || "",
-                date: new Date(),
-                total: totalAmount,
-                items: itemsToStaging,
-                salesRep: orderData.salesRep || ""
-            });
-        } catch (e) {
-            Logger.log("Order Form HTML PDF generation failed: " + e.message);
-        }
-
+        orderSheet.getRange(targetRow, 1, 1, baseRowData.concat(itemStrings).length)
+            .setValues([baseRowData.concat(itemStrings)]);
         SpreadsheetApp.flush();
-        return { success: true, orderId: finalOrderId, total: totalAmount.toFixed(2), pdfUrl: pdfUrl };
+
     } catch (e) {
         throw e;
     } finally {
-        LockService.getScriptLock().releaseLock();
+        // ── Release the lock BEFORE calling PDF generation ──────────────────────
+        // _populateSheetAndExport acquires its own ScriptLock internally.
+        // Holding this lock while calling it causes a 30-second deadlock / timeout.
+        lock.releaseLock();
     }
+
+    // ── PDF generation runs OUTSIDE the order-write lock ────────────────────────
+    let pdfUrl = '';
+    try {
+        pdfUrl = generateOrderFormHtmlPdf({
+            id: finalOrderId,
+            clientName: orderData.clientName || 'Unknown Client',
+            clientAddress: orderData.clientAddress || '',
+            clientComments: orderData.clientComments || '',
+            date: new Date(),
+            total: totalAmount,
+            items: itemsToStaging,
+            salesRep: orderData.salesRep || ''
+        });
+    } catch (e) {
+        Logger.log('Order Form PDF generation failed: ' + e.message + '\n' + e.stack);
+    }
+
+    return { success: true, orderId: finalOrderId, total: totalAmount.toFixed(2), pdfUrl };
 }
+
 
 function getOrderById(orderId) {
     if (!orderId) return null;

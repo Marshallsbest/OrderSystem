@@ -707,10 +707,11 @@ function _populateSheetAndExport(orderData) {
             }
         }
 
-        // ── Resolve {REF-Q} / {REF-T} tokens anywhere in the template ────────
-        // Users can place tokens like {BBS-Q} or {BBS-T} in any cell to pull
-        // per-product totals into a custom layout. See _resolveTemplateTokens().
-        _resolveTemplateTokens(formSheet, byRef, cellsToReset);
+        // ── Resolve tokens anywhere in the template ───────────────────────────
+        // Product tokens: {BBS-Q}, {BBS-T}, {BBS-QS}, {BBS-QM}
+        // Order tokens:   {CLIENT_NAME}, {CLIENT_ADDRESS}, {CLIENT_PHONE},
+        //                 {CLIENT_EMAIL}, {COMMENTS}, {SALES_REP}, {ORDER_TOTAL}
+        _resolveTemplateTokens(formSheet, byRef, orderData, cellsToReset);
 
         SpreadsheetApp.flush(); // Ensure all values are committed
 
@@ -781,44 +782,50 @@ function _populateSheetAndExport(orderData) {
 }
 
 // ============================================================================
-// TOKEN SUBSTITUTION  {REF-Q} / {REF-T}  in the ORDER_FORM template
+// TOKEN SUBSTITUTION  —  ORDER_FORM template placeholders
 // ============================================================================
 
 /**
- * Scans every cell in the ORDER_FORM sheet for placeholder tokens and
- * replaces them with real values from the current order.
+ * Scans every cell in the ORDER_FORM sheet for placeholder tokens.
  *
- * TOKEN FORMAT  (place in any cell of your ORDER_FORM template):
+ * PRODUCT TOKENS  (keyed by REF, place anywhere in the template):
+ *   {REF-Q}          Total units ordered (singles + cases combined)
+ *   {REF-QS}         Singles quantity only
+ *   {REF-QM}         MC / case quantity only
+ *   {REF-T}          Total dollar amount for that product group
  *
- *   {REF-Q}    Total quantity ordered for that product group
- *              (singles + cases combined as total individual units)
- *   {REF-QS}   Singles-only quantity
- *   {REF-QM}   MC / case quantity only
- *   {REF-T}    Total dollar amount for that product group
- *
- * REF is the product reference code (column A of the ORDER_FORM, case-insensitive).
- * Multiple tokens in the same cell are all resolved.
- * Unrecognised REFs resolve to 0 (product not in this order).
- *
- * Examples:
- *   {BBS-Q}    →  42          (42 units of product BBS ordered)
- *   {BBS-T}    →  210.00      (total cost)
- *   {BBS-QS}   →  12          (12 singles)
- *   {BBS-QM}   →  3           (3 master cases)
- *
- * All modified cells are added to cellsToReset so they are restored to their
- * original token text after the PDF is exported.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet     The template sheet
- * @param {Object} byRef   Aggregated order data keyed by REF:
- *                         { [REF]: { singlesQty, mcQty, totalPrice, ... } }
- * @param {Array}  cellsToReset   cells already tracked for cleanup — tokens
- *                                cells will be appended here
+ * ORDER-LEVEL TOKENS:
+ *   {CLIENT_NAME}    Client / store name
+ *   {CLIENT_ADDRESS} Client delivery address
+ *   {CLIENT_PHONE}   Client phone number
+ *   {CLIENT_EMAIL}   Client email address
+ *   {COMMENTS}       Order comments / special instructions
+ *   {SALES_REP}      Sales rep name
+ *   {ORDER_TOTAL}    Grand total dollar amount
+ *   {ORDER_DATE}     Order date (formatted)
+ *   {ORDER_ID}       Invoice / order number
  */
-function _resolveTemplateTokens(sheet, byRef, cellsToReset) {
+function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
     if (!sheet || !byRef) return;
 
-    const TOKEN_RE = /\{([A-Z0-9_\-]+)-(Q|QS|QM|T)\}/gi;
+    const od = orderData || {};
+    const grandTotal = Object.values(byRef).reduce((s, d) => s + (d.totalPrice || 0), 0);
+
+    const orderTokens = {
+        'CLIENT_NAME': String(od.clientName || ''),
+        'CLIENT_ADDRESS': String(od.clientAddress || ''),
+        'CLIENT_PHONE': String(od.clientPhone || od.phone || ''),
+        'CLIENT_EMAIL': String(od.clientEmail || od.email || ''),
+        'COMMENTS': String(od.clientComments || od.comments || od.notes || ''),
+        'SALES_REP': String(od.salesRep || ''),
+        'ORDER_TOTAL': grandTotal.toFixed(2),
+        'ORDER_DATE': od.date instanceof Date
+            ? formatDateWithOrdinal(od.date)
+            : String(od.date || new Date().toLocaleDateString()),
+        'ORDER_ID': String(od.id || od.orderId || ''),
+    };
+
+    const TOKEN_RE = /\{([A-Z0-9_]+)(?:-(Q|QS|QM|T))?\}/gi;
 
     const dataRange = sheet.getDataRange();
     const values = dataRange.getValues();
@@ -835,18 +842,25 @@ function _resolveTemplateTokens(sheet, byRef, cellsToReset) {
             const raw = String(values[r][c] || '');
             if (!raw.includes('{')) continue;  // fast skip — no token in this cell
 
-            const resolved = raw.replace(TOKEN_RE, (match, ref, suffix) => {
-                const key = ref.toUpperCase();
-                const data = byRef[key];
-                if (!data) return '0';
+            const resolved = raw.replace(TOKEN_RE, (match, key, suffix) => {
+                const upperKey = key.toUpperCase();
 
-                switch (suffix.toUpperCase()) {
-                    case 'Q': return String((data.singlesQty || 0) + (data.mcQty || 0));
-                    case 'QS': return String(data.singlesQty || 0);
-                    case 'QM': return String(data.mcQty || 0);
-                    case 'T': return Number(data.totalPrice || 0).toFixed(2);
-                    default: return '0';
+                // Order-level token (no suffix)
+                if (!suffix && orderTokens.hasOwnProperty(upperKey)) {
+                    return orderTokens[upperKey];
                 }
+                // Product-level token (has suffix)
+                if (suffix) {
+                    const data = byRef[upperKey];
+                    if (!data) return '0';
+                    switch (suffix.toUpperCase()) {
+                        case 'Q': return String((data.singlesQty || 0) + (data.mcQty || 0));
+                        case 'QS': return String(data.singlesQty || 0);
+                        case 'QM': return String(data.mcQty || 0);
+                        case 'T': return Number(data.totalPrice || 0).toFixed(2);
+                    }
+                }
+                return match; // Unknown — leave as-is
             });
 
             if (resolved !== raw) {
@@ -871,26 +885,6 @@ function _resolveTemplateTokens(sheet, byRef, cellsToReset) {
     });
 }
 
-/**
- * Overrides the standard clearContent cleanup used in _populateSheetAndExport's
- * finally block to also restore token cells to their original text.
- *
- * Note: The finally block calls  r.clearContent()  on each item in cellsToReset.
- * Token cells need setValue(original) instead — so they're handled here first,
- * then removed from the array before clearContent runs.
- *
- * This is called AT THE TOP of the finally block in _populateSheetAndExport.
- * (The finally block already does this implicitly since token objects have
- *  a _token flag — the loop below handles them correctly.)
- */
-// ─── NOTE ────────────────────────────────────────────────────────────────────
-// The finally block in _populateSheetAndExport uses:
-//   cellsToReset.forEach(r => { try { r.clearContent(); } catch(e){} });
-//
-// To restore token cells to their original text rather than blanking them,
-// replace that loop with _cleanupCells(cellsToReset).  Update the finally
-// block accordingly (done below via the replace_file_content edit).
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ============================================================================
 // PATH B — HTML PDF (auto-generated on web form submission)
