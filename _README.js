@@ -11,7 +11,7 @@
  *  HOW TO DEPLOY THE WEB APP
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  *
- *  1. In this editor, click  "Deploy"  (top right button)
+ *  1. In the Appscript Editor, click  "Deploy"  (top right button)
  *  2. Select  "New deployment"
  *  3. Click the gear icon ⚙️ next to "Select type" → choose  "Web app"
  *  4. Fill in:
