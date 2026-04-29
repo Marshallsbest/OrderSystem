@@ -54,6 +54,29 @@
  *     ]
  *   }
  */
+/**
+ * Returns the row-matching mode for a given form number.
+ * Reads SETTINGS key FORM_1_LOOKUP, FORM_2_LOOKUP, etc.
+ * Valid values: "REF" (default) or "SKU"
+ */
+function getFormLookupMode(formNum) {
+    try {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SETTINGS');
+        if (!sheet) return 'REF';
+        const data = sheet.getDataRange().getValues();
+        const key = ('FORM_' + formNum + '_LOOKUP').toUpperCase();
+        for (let i = 0; i < data.length; i++) {
+            if (String(data[i][0] || '').trim().toUpperCase() === key) {
+                const val = String(data[i][1] || '').trim().toUpperCase();
+                return (val === 'SKU' || val === 'REF') ? val : 'REF';
+            }
+        }
+    } catch (e) {
+        Logger.log('getFormLookupMode error: ' + e.message);
+    }
+    return 'REF'; // safe default
+}
+
 function readOrderFormTemplate(sheetName) {
     sheetName = sheetName || 'ORDER_FORM_1';
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -83,13 +106,16 @@ function readOrderFormTemplate(sheetName) {
             if (cell === 'singles' || cell === 'single') { singlesCol = c; hits++; }
             else if (cell === 'mc' || cell.startsWith('multi') || cell === 'case') { mcCol = c; hits++; }
             else if (cell === 'total') { totalCol = c; hits++; }
+            // Also accept pure Quantity column (ORDER_FORM_2 style: Brand | $/Case | Quantity | Total)
+            else if (cell === 'quantity' || cell === 'qty') { if (mcCol === -1) mcCol = c; hits++; }
         }
-        if (hits >= 2) { headerRow = r; break; }
+        // Need at least: (Singles OR Quantity/MC) + Total, OR all three classic columns
+        if (hits >= 2 && totalCol > -1) { headerRow = r; break; }
     }
 
     if (headerRow === -1) throw new Error(
-        'ORDER_FORM_1 header row not found. ' +
-        'Ensure the sheet has columns labelled "Singles", "MC", and "Total".'
+        `Order form header not found in sheet "${sheetName}". ` +
+        'Ensure it has columns labelled "Singles" (or "Quantity") and "Total".'
     );
 
     // ── Detect other column positions from header row ─────────────────────────
@@ -191,6 +217,7 @@ function readOrderFormTemplate(sheetName) {
                 type: 'product',
                 sheetRowNum,
                 ref: refVal.toUpperCase(),
+                colA: String(rowData[0] || '').trim().toUpperCase(), // raw col-A value for SKU fallback
                 label: labelVal,
                 format: formatVal,
                 price: priceVal,
@@ -214,6 +241,7 @@ function readOrderFormTemplate(sheetName) {
     return {
         sheet,
         headerRow,
+        headerRowNum: headerRow + 1, // 1-based, used to skip during grand-total scan
         refCol, labelCol, formatCol, priceCol, mcPriceCol,
         singlesCol, mcCol, totalCol,
         lastCol,
@@ -246,18 +274,22 @@ function aggregateOrderByRef(orderItems, catalog) {
     const byForm = {};
 
     const _ensureForm = (num) => {
-        if (!byForm[num]) byForm[num] = { byRef: {}, itemizedDetail: [] };
+        if (!byForm[num]) byForm[num] = { byRef: {}, bySku: {}, itemizedDetail: [] };
     };
     const _ensureRef = (form, ref) => {
         if (!form.byRef[ref]) form.byRef[ref] = { singlesQty: 0, mcQty: 0, totalPrice: 0, items: [] };
+    };
+    const _ensureSku = (form, sku) => {
+        if (!form.bySku[sku]) form.bySku[sku] = { singlesQty: 0, mcQty: 0, totalPrice: 0 };
     };
 
     (orderItems || []).forEach(item => {
         const qty = parseInt(item.quantity) || 0;
         if (qty <= 0) return;
 
+        const skuUpper = String(item.sku || '').trim().toUpperCase();
         const product = catalog.find(p =>
-            String(p.sku || '').trim().toUpperCase() === String(item.sku || '').trim().toUpperCase()
+            String(p.sku || '').trim().toUpperCase() === skuUpper
         );
 
         const ref = product ? String(product.ref || '').trim().toUpperCase() : '?';
@@ -268,14 +300,18 @@ function aggregateOrderByRef(orderItems, catalog) {
 
         _ensureForm(formNum);
         _ensureRef(byForm[formNum], ref);
+        _ensureSku(byForm[formNum], skuUpper);
 
         const formData = byForm[formNum];
         if (isCase) {
             formData.byRef[ref].mcQty += qty;
+            formData.bySku[skuUpper].mcQty += qty;
         } else {
             formData.byRef[ref].singlesQty += qty;
+            formData.bySku[skuUpper].singlesQty += qty;
         }
         formData.byRef[ref].totalPrice += unitPrice * qty;
+        formData.bySku[skuUpper].totalPrice += unitPrice * qty;
 
         const variation = product
             ? [product.variation, product.variation2, product.variation3]
@@ -296,6 +332,7 @@ function aggregateOrderByRef(orderItems, catalog) {
             ref,
             sku: item.sku,
             name: product ? product.name : item.sku,
+            brand: product ? product.brand : '',
             variation,
             quantity: qty,
             isCase,
@@ -398,39 +435,48 @@ function generateSelectedOrderFormPdf() {
         const pdfUrls = [];
 
         formNums.forEach(formNum => {
-            const sheetName = 'ORDER_FORM_' + formNum;
+            const sheetName = getOrderFormSheetName(formNum); // honours SETTINGS FORM_N_SHEET overrides
 
-            // Native Sheets PDF — includes itemized detail written into secondary table
-            const page1Url = _populateSheetAndExport({
-                id: orderId,
-                clientName,
-                clientAddress: orderData.clientAddress,
-                clientComments: orderData.clientComments,
-                salesRep: orderData.salesRep,
-                date: orderDate,
-                items,
-                _formNum: formNum,
-                _byForm: byForm,
-                _sheetName: sheetName,
-            });
+            try {
+                // Native Sheets PDF — includes itemized detail written into secondary table
+                const page1Url = _populateSheetAndExport({
+                    id: orderId,
+                    clientName,
+                    clientAddress: orderData.clientAddress,
+                    clientComments: orderData.clientComments,
+                    salesRep: orderData.salesRep,
+                    date: orderDate,
+                    items,
+                    _formNum: formNum,
+                    _byForm: byForm,
+                    _sheetName: sheetName,
+                });
 
-            pdfUrls.push({ formNum, url: page1Url });
-            Logger.log('Order Form PDF (native): ' + page1Url);
+                pdfUrls.push({ formNum, url: page1Url });
+                Logger.log('Order Form PDF (native): ' + page1Url);
+            } catch (formErr) {
+                Logger.log(`Skipping Form ${formNum} (sheet "${sheetName}"): ${formErr.message}`);
+                pdfUrls.push({ formNum, url: null, error: formErr.message });
+            }
         });
 
-        const links = pdfUrls.map(u =>
+        const successLinks = pdfUrls.filter(u => u.url).map(u =>
             `<p><a href="${u.url}" target="_blank"
                   style="color:#b040b0;font-weight:700;font-size:14px;">
-              📋 ORDER_FORM_${u.formNum} — Order Form PDF
+              📋 Form ${u.formNum} — Order Form PDF
             </a></p>`
+        ).join('');
+        const errorLines = pdfUrls.filter(u => !u.url).map(u =>
+            `<p style="color:#c00;font-size:12px;">⚠️ Form ${u.formNum} skipped: ${u.error || 'Sheet not found'}</p>`
         ).join('');
 
         const html = HtmlService.createHtmlOutput(`
           <div style="font-family:Arial,sans-serif;padding:20px;">
-            <p style="color:#b040b0;font-size:16px;font-weight:700;">✓ PDF created!</p>
-            ${links}
+            <p style="color:#b040b0;font-size:16px;font-weight:700;">✓ PDF generation complete</p>
+            ${successLinks}
+            ${errorLines}
           </div>
-        `).setWidth(400).setHeight(140);
+        `).setWidth(450).setHeight(160);
 
         SpreadsheetApp.getUi().showModalDialog(html, 'Order Form PDF Ready');
 
@@ -464,14 +510,24 @@ function _buildDetailPageHtml(itemizedDetail, orderData, formattedDate) {
         const L = leftCol[i];
         const R = rightCol[i];
         const strip = i % 2 === 0 ? '#ffffff' : '#f5f5f5';
+
+        const formatName = (item) => {
+            if (!item) return '';
+            let text = '';
+            if (item.brand) text += item.brand + ' ';
+            if (item.name) text += item.name;
+            if (item.variation && item.variation !== item.name) text += ' - ' + item.variation;
+            return text || item.variation || item.name || '';
+        };
+
         rows += `
       <tr style="background:${strip};">
         <td style="text-align:center;font-weight:700;font-size:9px;color:#888;width:32px;border:1px solid #ddd;padding:3px 4px;">${L ? _esc(L.ref) : ''}</td>
-        <td style="padding:3px 7px;border:1px solid #ddd;font-size:10px;">${L ? _esc(L.variation || L.name) : ''}</td>
+        <td style="padding:3px 7px;border:1px solid #ddd;font-size:10px;">${L ? _esc(formatName(L)) : ''}</td>
         <td style="text-align:center;font-weight:700;width:44px;border:1px solid #ddd;padding:3px 4px;">${L ? L.quantity : ''}</td>
         <td style="width:10px;background:#ddd;border:none;"></td>
         <td style="text-align:center;font-weight:700;font-size:9px;color:#888;width:32px;border:1px solid #ddd;padding:3px 4px;">${R ? _esc(R.ref) : ''}</td>
-        <td style="padding:3px 7px;border:1px solid #ddd;font-size:10px;">${R ? _esc(R.variation || R.name) : ''}</td>
+        <td style="padding:3px 7px;border:1px solid #ddd;font-size:10px;">${R ? _esc(formatName(R)) : ''}</td>
         <td style="text-align:center;font-weight:700;width:44px;border:1px solid #ddd;padding:3px 4px;">${R ? R.quantity : ''}</td>
       </tr>`;
     }
@@ -532,6 +588,26 @@ function _populateSheetAndExport(orderData) {
                 return (byForm[orderData._formNum || '1'] || {}).byRef || {};
             })();
 
+        const bySku = orderData._byForm
+            ? (orderData._byForm[orderData._formNum] || {}).bySku || {}
+            : {};
+
+        // ── Lookup mode: REF (default) or SKU, per-form from SETTINGS ────────
+        // SETTINGS key: FORM_1_LOOKUP = REF, FORM_2_LOOKUP = SKU, etc.
+        const lookupMode = getFormLookupMode(orderData._formNum || '1');
+        Logger.log(`Form ${orderData._formNum} lookup mode: ${lookupMode}`);
+
+        // Helper: look up product data by the row's ref value, respecting mode,
+        //         with automatic fallback to: other mode, then column-A value (SKU forms).
+        const lookupRowData = (row) => {
+            const k = String(row.ref || '').toUpperCase();
+            const kA = String(row.colA || '').toUpperCase(); // raw col-A (SKU in Form 2)
+            if (lookupMode === 'SKU') {
+                return bySku[k] || byRef[k] || (kA && kA !== k ? (bySku[kA] || byRef[kA]) : null) || null;
+            }
+            return byRef[k] || bySku[k] || (kA && kA !== k ? (byRef[kA] || bySku[kA]) : null) || null;
+        };
+
         const sheetName = orderData._sheetName || getOrderFormSheetName(orderData._formNum || '1');
         const template = readOrderFormTemplate(sheetName);
         if (!template) throw new Error(sheetName + ' is empty.');
@@ -572,44 +648,66 @@ function _populateSheetAndExport(orderData) {
         template.rows.forEach(row => {
             if (row.type !== 'product') return;
 
-            const data = byRef[row.ref];
+            const data = lookupRowData(row);
             if (!data) return; // Product not in this order — leave blank
 
-            const singlesQty = data.singlesQty;
-            const mcQty = data.mcQty;
-            const totalPrice = data.totalPrice || 0; // dollar total
+            const singlesQty = data.singlesQty || 0;
+            const mcQty = data.mcQty || 0;
+            const totalPrice = data.totalPrice || 0;
+
+            // For SKU-mode forms, write the quantity (singles OR mc, whichever is present)
+            // into whichever column is available.
+            const qtyToWrite = singlesQty + mcQty; // combined for forms with a single Qty column
 
             if (template.singlesCol > -1 && singlesQty > 0) {
                 const r = formSheet.getRange(row.sheetRowNum, template.singlesCol + 1);
                 r.setValue(singlesQty);
                 cellsToReset.push(r);
             }
-            if (template.mcCol > -1 && mcQty > 0) {
-                const r = formSheet.getRange(row.sheetRowNum, template.mcCol + 1);
-                r.setValue(mcQty);
-                cellsToReset.push(r);
+            if (template.mcCol > -1) {
+                // In SKU/Qty-only forms (no singles col), put combined qty in mcCol
+                const writeQty = (template.singlesCol === -1) ? qtyToWrite : mcQty;
+                if (writeQty > 0) {
+                    const r = formSheet.getRange(row.sheetRowNum, template.mcCol + 1);
+                    r.setValue(writeQty);
+                    cellsToReset.push(r);
+                }
             }
             if (template.totalCol > -1 && totalPrice > 0) {
                 const r = formSheet.getRange(row.sheetRowNum, template.totalCol + 1);
-                // Write as a raw number so the sheet's existing currency format applies
                 r.setValue(totalPrice);
                 cellsToReset.push(r);
             }
         });
 
         // ── Calculate and write Grand Total to the "Total:" cell ──────────────
-        const grandTotal = Object.values(byRef).reduce((sum, d) => sum + (d.totalPrice || 0), 0);
+        // Sum from whichever lookup source has data
+        const refTotal = Object.values(byRef).reduce((s, d) => s + (d.totalPrice || 0), 0);
+        const skuTotal = Object.values(bySku).reduce((s, d) => s + (d.totalPrice || 0), 0);
+        const grandTotal = Math.max(refTotal, skuTotal); // both should agree; take the larger
+
         const lastTemplateRow = template.rows.length > 0
             ? template.rows[template.rows.length - 1].sheetRowNum
-            : formSheet.getLastRow();
+            : 1;
 
         if (grandTotal > 0) {
-            const scanEnd = Math.min(lastTemplateRow + 12, formSheet.getMaxRows()); // +12 to cover spacer blank rows
+            // Scan from lastTemplateRow (not +1) — the Total: row may BE the last template row.
+            // Skip the form's own column-header row (headerRowNum) to avoid matching
+            // the word "Total" in the "Singles | MC | Total" header.
+            const scanStart = lastTemplateRow;
+            const scanEnd = formSheet.getLastRow();
             const lastSheetCol = formSheet.getLastColumn();
+            const skipRow = template.headerRowNum; // never write to the column-header row
 
-            for (let scanRow = lastTemplateRow; scanRow <= scanEnd; scanRow++) {
+            for (let scanRow = scanStart; scanRow <= scanEnd; scanRow++) {
+                if (scanRow === skipRow) continue; // skip the singles/mc/total header row
                 const scanVals = formSheet.getRange(scanRow, 1, 1, lastSheetCol).getValues()[0];
-                const totalLabelIdx = scanVals.findIndex(c => /^\s*total:?\s*$/i.test(String(c || '')));
+                // Matches: "Total", "Total:", "Grand Total:", "Sub-Total", "Order Total"
+                // Does NOT match "Total Singles", "Total MC", "Total Units" (trailing words)
+                const totalLabelIdx = scanVals.findIndex(c => {
+                    const s = String(c || '').trim();
+                    return /^(grand\s+|sub[-\s]?|order\s+)?total:?\s*$/i.test(s);
+                });
                 if (totalLabelIdx > -1) {
                     const writeCol = (totalLabelIdx + 2 <= lastSheetCol)
                         ? totalLabelIdx + 2
@@ -617,7 +715,7 @@ function _populateSheetAndExport(orderData) {
                     const totalCell = formSheet.getRange(scanRow, writeCol);
                     totalCell.setValue(grandTotal);
                     cellsToReset.push(totalCell);
-                    Logger.log(`Grand total $${grandTotal} → row ${scanRow} col ${writeCol}`);
+                    Logger.log(`Grand total $${grandTotal} → row ${scanRow} col ${writeCol} (label: "${scanVals[totalLabelIdx]}")`);
                     break;
                 }
             }
@@ -632,7 +730,7 @@ function _populateSheetAndExport(orderData) {
 
         if (itemizedDetail.length > 0) {
             const secScanStart = lastTemplateRow + 1;
-            const secScanEnd = Math.min(secScanStart + 20, formSheet.getMaxRows()); // use getMaxRows to catch header rows in blank area
+            const secScanEnd = formSheet.getLastRow(); // scan all remaining rows, not just +20
             const lastSheetCol = formSheet.getLastColumn();
             let secHeaderRow = -1, nameCol1 = -1, qtyCol1 = -1, nameCol2 = -1, qtyCol2 = -1;
 
@@ -684,11 +782,19 @@ function _populateSheetAndExport(orderData) {
                 const refCol2 = nameCol2 > 1 ? nameCol2 - 1 : -1;
                 const maxRows = formSheet.getMaxRows();
 
+                const formatDisplayName = (item) => {
+                    let text = '';
+                    if (item.brand) text += item.brand + ' ';
+                    if (item.name) text += item.name;
+                    if (item.variation && item.variation !== item.name) text += ' - ' + item.variation;
+                    return text || item.variation || item.name || '';
+                };
+
                 leftItems.forEach((item, i) => {
                     const rowNum = secHeaderRow + 1 + i;
                     if (rowNum > maxRows) return;
                     if (refCol1 > 0) { const rc = formSheet.getRange(rowNum, refCol1); rc.setValue(item.ref); cellsToReset.push(rc); }
-                    if (nameCol1 > 0) { const nc = formSheet.getRange(rowNum, nameCol1); nc.setValue(item.variation || item.name); cellsToReset.push(nc); }
+                    if (nameCol1 > 0) { const nc = formSheet.getRange(rowNum, nameCol1); nc.setValue(formatDisplayName(item)); cellsToReset.push(nc); }
                     if (qtyCol1 > 0) { const qc = formSheet.getRange(rowNum, qtyCol1); qc.setValue(item.quantity); cellsToReset.push(qc); }
                 });
 
@@ -696,7 +802,7 @@ function _populateSheetAndExport(orderData) {
                     const rowNum = secHeaderRow + 1 + i;
                     if (rowNum > maxRows) return;
                     if (refCol2 > 0) { const rc = formSheet.getRange(rowNum, refCol2); rc.setValue(item.ref); cellsToReset.push(rc); }
-                    if (nameCol2 > 0) { const nc = formSheet.getRange(rowNum, nameCol2); nc.setValue(item.variation || item.name); cellsToReset.push(nc); }
+                    if (nameCol2 > 0) { const nc = formSheet.getRange(rowNum, nameCol2); nc.setValue(formatDisplayName(item)); cellsToReset.push(nc); }
                     if (qtyCol2 > 0) { const qc = formSheet.getRange(rowNum, qtyCol2); qc.setValue(item.quantity); cellsToReset.push(qc); }
                 });
 
@@ -711,7 +817,7 @@ function _populateSheetAndExport(orderData) {
         // Product tokens: {BBS-Q}, {BBS-T}, {BBS-QS}, {BBS-QM}
         // Order tokens:   {CLIENT_NAME}, {CLIENT_ADDRESS}, {CLIENT_PHONE},
         //                 {CLIENT_EMAIL}, {COMMENTS}, {SALES_REP}, {ORDER_TOTAL}
-        _resolveTemplateTokens(formSheet, byRef, orderData, cellsToReset);
+        _resolveTemplateTokens(formSheet, byRef, bySku, orderData, cellsToReset);
 
         SpreadsheetApp.flush(); // Ensure all values are committed
 
@@ -724,6 +830,13 @@ function _populateSheetAndExport(orderData) {
         const sheetId = formSheet.getSheetId();
 
         // Build export URL — Sheets PDF export API
+        // We let the sheet's own page-break settings control page separation.
+        // fitw=true scales content to fit the paper width.
+        // Use explicit print area (r1/c1/r2/c2, 0-indexed) so we don't export
+        // a massive blank area below the secondary table.
+        const lastDataRow = formSheet.getLastRow();   // actual last used row
+        const lastDataCol = formSheet.getLastColumn(); // actual last used col
+
         const exportUrl = [
             'https://docs.google.com/spreadsheets/d/', ssId,
             '/export?',
@@ -736,7 +849,12 @@ function _populateSheetAndExport(orderData) {
             '&pagenumbers=false',
             '&gridlines=false',
             '&fzr=false',
-            '&gid=', sheetId,   // Only this sheet — no range restriction
+            '&gid=', sheetId,
+            // Clamp to the actual data area — prevents blank pages at the bottom
+            '&r1=0',
+            '&c1=0',
+            '&r2=', lastDataRow - 1,   // 0-indexed last row with data
+            '&c2=', lastDataCol - 1,   // 0-indexed last col with data
         ].join('');
 
         const token = ScriptApp.getOAuthToken();
@@ -805,8 +923,9 @@ function _populateSheetAndExport(orderData) {
  *   {ORDER_DATE}     Order date (formatted)
  *   {ORDER_ID}       Invoice / order number
  */
-function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
+function _resolveTemplateTokens(sheet, byRef, bySku, orderData, cellsToReset) {
     if (!sheet || !byRef) return;
+    bySku = bySku || {};
 
     const od = orderData || {};
     const grandTotal = Object.values(byRef).reduce((s, d) => s + (d.totalPrice || 0), 0);
@@ -825,7 +944,40 @@ function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
         'ORDER_ID': String(od.id || od.orderId || ''),
     };
 
-    const TOKEN_RE = /\{([A-Z0-9_]+)(?:-(Q|QS|QM|T))?\}/gi;
+    // Token format: {KEY-SUFFIX} where KEY can contain hyphens (for SKU tokens like CDNCL-2)
+    // Strategy: match the longest possible KEY that leaves a valid SUFFIX at the end.
+    // We capture everything before the last hyphen+suffix as the KEY.
+    // Examples:
+    //   {CDNCL-Q}    → key=CDNCL,   suffix=Q  → REF-based (sum all SKUs under CDNCL)
+    //   {CDNCL-2-Q}  → key=CDNCL-2, suffix=Q  → SKU-based (exact SKU, individual qty)
+    //   {CLIENT_NAME}→ key=CLIENT_NAME, suffix=none → order token
+    const TOKEN_RE = /\{([A-Z0-9][A-Z0-9_-]*)\}/gi;
+    const VALID_SUFFIXES = new Set(['Q', 'QS', 'QM', 'T']);
+
+    const resolveProductToken = (fullKey, suffix) => {
+        const uk = fullKey.toUpperCase();
+        // 1. Try exact SKU match first (SKU-based = individual, no summing)
+        if (bySku[uk]) {
+            const d = bySku[uk];
+            switch (suffix) {
+                case 'Q': return String((d.singlesQty || 0) + (d.mcQty || 0));
+                case 'QS': return String(d.singlesQty || 0);
+                case 'QM': return String(d.mcQty || 0);
+                case 'T': return Number(d.totalPrice || 0).toFixed(2);
+            }
+        }
+        // 2. Fall back to REF-based match (sums all SKUs under that ref)
+        if (byRef[uk]) {
+            const d = byRef[uk];
+            switch (suffix) {
+                case 'Q': return String((d.singlesQty || 0) + (d.mcQty || 0));
+                case 'QS': return String(d.singlesQty || 0);
+                case 'QM': return String(d.mcQty || 0);
+                case 'T': return Number(d.totalPrice || 0).toFixed(2);
+            }
+        }
+        return '0'; // not found
+    };
 
     const dataRange = sheet.getDataRange();
     const values = dataRange.getValues();
@@ -834,33 +986,30 @@ function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
 
     if (numRows === 0 || numCols === 0) return;
 
-    // Track which cells were changed so we can write in one batch + reset later
-    const changedCells = []; // { row, col, original, resolved }
+    const changedCells = [];
 
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
             const raw = String(values[r][c] || '');
-            if (!raw.includes('{')) continue;  // fast skip — no token in this cell
+            if (!raw.includes('{')) continue;
 
-            const resolved = raw.replace(TOKEN_RE, (match, key, suffix) => {
-                const upperKey = key.toUpperCase();
+            const resolved = raw.replace(TOKEN_RE, (match, innerKey) => {
+                const uk = innerKey.toUpperCase();
 
-                // Order-level token (no suffix)
-                if (!suffix && orderTokens.hasOwnProperty(upperKey)) {
-                    return orderTokens[upperKey];
-                }
-                // Product-level token (has suffix)
-                if (suffix) {
-                    const data = byRef[upperKey];
-                    if (!data) return '0';
-                    switch (suffix.toUpperCase()) {
-                        case 'Q': return String((data.singlesQty || 0) + (data.mcQty || 0));
-                        case 'QS': return String(data.singlesQty || 0);
-                        case 'QM': return String(data.mcQty || 0);
-                        case 'T': return Number(data.totalPrice || 0).toFixed(2);
+                // Check for order-level token (no suffix, must match exactly)
+                if (orderTokens.hasOwnProperty(uk)) return orderTokens[uk];
+
+                // Split off a trailing -SUFFIX (Q, QS, QM, T) if present
+                const lastDash = uk.lastIndexOf('-');
+                if (lastDash > 0) {
+                    const maybeSuffix = uk.slice(lastDash + 1);
+                    if (VALID_SUFFIXES.has(maybeSuffix)) {
+                        const productKey = uk.slice(0, lastDash);
+                        return resolveProductToken(productKey, maybeSuffix);
                     }
                 }
-                return match; // Unknown — leave as-is
+
+                return match; // Unknown token — leave as-is
             });
 
             if (resolved !== raw) {
@@ -876,10 +1025,6 @@ function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
     changedCells.forEach(({ row, col, original, resolved }) => {
         const cell = sheet.getRange(row, col);
         cell.setValue(resolved);
-        // Restore the original token text after PDF export so the template
-        // stays reusable. We store the original value in the cell object's
-        // clearContent replacement by re-setting the token string.
-        // Trick: push a custom reset object alongside the regular Range ones.
         cellsToReset.push({ _token: true, range: cell, original });
         Logger.log(`  [Token] (R${row},C${col}) "${original}" → "${resolved}"`);
     });
@@ -903,13 +1048,8 @@ function _resolveTemplateTokens(sheet, byRef, orderData, cellsToReset) {
  * @returns {string}          URL of the saved PDF file
  */
 function generateOrderFormHtmlPdf(orderData) {
-    // ── Now uses the same native-sheet export as the manual menu trigger ────────
-    // (The function name is kept for backward-compat with OrderService.js)
-    // NOTE: No outer lock needed — _populateSheetAndExport manages its own lock.
-
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // Read sales rep from CFG_SALES_REP (same as generateSelectedOrderFormPdf)
     let cfgSalesRep = '';
     try {
         const repRange = ss.getRangeByName('CFG_SALES_REP');
@@ -921,13 +1061,19 @@ function generateOrderFormHtmlPdf(orderData) {
         salesRep: cfgSalesRep || String(orderData.salesRep || '').trim(),
     });
 
+    // ── Branch: Summary PDF vs ORDER_FORM template PDF ────────────────────────
+    if (enrichedOrderData.useSummaryPdf) {
+        return _generateSummaryHtmlPdf(enrichedOrderData);
+    }
+
+    // ── Existing path: populate ORDER_FORM_N sheet(s) and export ─────────────
     const catalog = getProductCatalog();
     const { byForm } = aggregateOrderByRef(enrichedOrderData.items || [], catalog);
     const formNums = Object.keys(byForm);
     let lastPdfUrl = '';
 
     formNums.forEach(formNum => {
-        const sheetName = getOrderFormSheetName(formNum); // admin-configurable via SETTINGS
+        const sheetName = getOrderFormSheetName(formNum);
         const url = _populateSheetAndExport({
             id: enrichedOrderData.id,
             clientName: enrichedOrderData.clientName,
@@ -944,6 +1090,124 @@ function generateOrderFormHtmlPdf(orderData) {
     });
 
     return lastPdfUrl;
+}
+
+/**
+ * Generate a clean HTML-based summary PDF that mirrors the review screen layout:
+ * - One section per order form, with its own subtotal
+ * - Itemized line items per form (brand + name + variation + qty + line total)
+ * - Grand total at the bottom
+ * - No dependency on ORDER_FORM_N sheets
+ */
+function _generateSummaryHtmlPdf(orderData) {
+    const catalog = getProductCatalog();
+    const { byForm } = aggregateOrderByRef(orderData.items || [], catalog);
+    const formNums = Object.keys(byForm).sort();
+
+    const clientName = String(orderData.clientName || 'Unknown Client').trim();
+    const salesRep = String(orderData.salesRep || '').trim();
+    const displayRep = salesRep.split(/\s+/)[0] || salesRep;
+    const orderDate = orderData.date instanceof Date ? orderData.date : new Date();
+    const formattedDate = formatDateWithOrdinal(orderDate);
+    const orderId = String(orderData.id || '').trim();
+    const primary = '#cc66cc';
+    const accent = '#b050b0';
+
+    let formSections = '';
+    let grandTotal = 0;
+
+    formNums.forEach(formNum => {
+        const formData = byForm[formNum];
+        const items = (formData.itemizedDetail || []).filter(i => i.quantity > 0);
+        let formTotal = 0;
+        items.forEach(i => {
+            const product = catalog.find(p => String(p.sku || '').trim().toUpperCase() === String(i.sku || '').trim().toUpperCase());
+            const price = product ? (product.onSale && product.salePrice > 0 ? product.salePrice : product.price) : 0;
+            i._lineTotal = price * i.quantity;
+            formTotal += i._lineTotal;
+        });
+        grandTotal += formTotal;
+
+        const rows = items.map((i, idx) => {
+            const strip = idx % 2 === 0 ? '#ffffff' : '#f7f7f7';
+            const name = [i.brand, i.name, i.variation].filter(v => v && String(v).trim()).join(' — ');
+            return `<tr bgcolor="${strip}">
+              <td style="padding:5px 8px; border:1px solid #e0e0e0; font-size:10px;">${_esc(name)}</td>
+              <td style="padding:5px 8px; border:1px solid #e0e0e0; text-align:center; font-size:10px; font-weight:600;">${i.quantity}</td>
+              <td style="padding:5px 8px; border:1px solid #e0e0e0; text-align:right; font-size:10px;">$${Number(i._lineTotal || 0).toFixed(2)}</td>
+            </tr>`;
+        }).join('');
+
+        formSections += `
+        <div style="margin-bottom:20px;">
+          <div style="background:${primary}; color:#fff; font-weight:700; font-size:11px;
+                      padding:6px 10px; border-radius:4px 4px 0 0; letter-spacing:0.3px;">
+            Form ${_esc(formNum)}
+          </div>
+          <table style="width:100%; border-collapse:collapse; border:1px solid #ddd;">
+            <thead>
+              <tr bgcolor="${primary}">
+                <th style="padding:5px 8px; text-align:left; color:#fff; font-size:10px; border:1px solid ${accent};">Product</th>
+                <th style="padding:5px 8px; text-align:center; color:#fff; font-size:10px; width:50px; border:1px solid ${accent};">Qty</th>
+                <th style="padding:5px 8px; text-align:right; color:#fff; font-size:10px; width:80px; border:1px solid ${accent};">Total</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr bgcolor="#fce4fc">
+                <td colspan="2" style="padding:6px 8px; text-align:right; font-weight:700; font-size:11px; border:1px solid #ddd; color:${accent};">
+                  Form ${_esc(formNum)} Subtotal:
+                </td>
+                <td style="padding:6px 8px; text-align:right; font-weight:700; font-size:11px; border:1px solid #ddd; color:${accent};">
+                  $${formTotal.toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>`;
+    });
+
+    const grandTotalRow = formNums.length > 1
+        ? `<table style="width:100%; border-collapse:collapse; margin-top:8px;">
+             <tr bgcolor="#e8f5e9">
+               <td colspan="2" style="padding:8px 10px; font-weight:900; font-size:13px;
+                   text-align:right; color:#1b5e20; border:2px solid #4caf50;">Grand Total:</td>
+               <td style="padding:8px 10px; font-weight:900; font-size:13px; width:100px;
+                   text-align:right; color:#1b5e20; border:2px solid #4caf50;">$${grandTotal.toFixed(2)}</td>
+             </tr>
+           </table>`
+        : '';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#1a1a1a; }
+  .page { padding:20px 24px; max-width:780px; margin:0 auto; }
+</style></head><body>
+<div class="page">
+  <div style="border-bottom:3px solid ${primary}; padding-bottom:10px; margin-bottom:16px;">
+    <div style="font-size:18px; font-weight:900; color:${primary};">Order Summary</div>
+    <div style="font-size:10px; color:#555; margin-top:4px;">
+      ${_esc(clientName)}
+      &nbsp;|&nbsp; Date: ${_esc(formattedDate)}
+      &nbsp;|&nbsp; Order #${_esc(orderId)}
+      ${displayRep ? '&nbsp;|&nbsp; Rep: ' + _esc(displayRep) : ''}
+    </div>
+  </div>
+  ${formSections}
+  ${grandTotalRow}
+</div>
+</body></html>`;
+
+    const blob = Utilities.newBlob(html, 'text/html', 'summary.html');
+    const pdfBlob = blob.getAs('application/pdf');
+    const repSuffix = salesRep ? ` - ${salesRep}` : '';
+    pdfBlob.setName(`${clientName} ${formattedDate}${repSuffix} - Summary.pdf`);
+
+    const folder = getOrdersFolder();
+    const file = folder.createFile(pdfBlob);
+    Logger.log('Summary PDF saved: ' + file.getUrl());
+    return file.getUrl();
 }
 
 

@@ -266,6 +266,7 @@ function buildInvoiceHtml(orderData, formattedDate) {
             return {
                 sku: item.sku,
                 name: item.sku,
+                brand: "",
                 variation: "",
                 category: "Unknown",
                 quantity: item.quantity,
@@ -279,6 +280,7 @@ function buildInvoiceHtml(orderData, formattedDate) {
         return {
             sku: product.sku,
             name: product.name,
+            brand: product.brand || "",
             variation: [product.variation, product.variation2, product.variation3].filter(v => v).join(" "),
             category: product.category || "Uncategorized",
             quantity: item.quantity,
@@ -303,7 +305,10 @@ function buildInvoiceHtml(orderData, formattedDate) {
     // Columns: Product | Qty | Price | Sale Price | Subtotal
     let itemRowsHtml = "";
     enrichedItems.forEach(item => {
-        const productDisplay = item.name + (item.variation ? " " + item.variation : "");
+        let productDisplay = "";
+        if (item.brand) productDisplay += item.brand + " ";
+        productDisplay += item.name;
+        if (item.variation) productDisplay += " - " + item.variation;
         const finalPrice = item.onSale ? item.salePrice : item.price;
         const lineSubtotal = finalPrice * item.quantity;
 

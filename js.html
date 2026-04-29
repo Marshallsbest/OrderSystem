@@ -655,8 +655,9 @@
                     }
                     // POPULATE STICKY HEADERS FOR MATRIX
                     headerColsHtml = colDefs.map(col => `
-                <div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px;">
-                    <span class="qty-header-label" style="font-size:11px; font-weight:bold;">${col.label}</span>
+                <div style="width:48px !important; max-width:48px !important; min-width:48px !important;
+                     flex:0 0 48px !important; overflow:hidden; text-align:center;">
+                    <span class="qty-header-label" style="font-size:10px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${col.label}</span>
                 </div>
                 `).join("");
                 } else {
@@ -706,13 +707,18 @@
                         return cell;
                     };
 
-                    // 1. Single Price Column Header
-                    headerColsHtml += buildPriceHeader(pSingleLeader, "Single");
+                    // Only show Single header when the group actually has non-case products.
+                    // If ALL products are cases (e.g. Master Case only), skip the empty Single column.
+                    const showSingle = group.some(p => !p.hasCase);
+                    if (showSingle) {
+                        headerColsHtml += buildPriceHeader(pSingleLeader, "Single");
+                    }
 
                     // 2. Case Price Column Header (if applicable)
                     if (showCase) {
                         const pCaseLeader = group.find(p => p.hasCase && Number(p.price) > 0) || group.find(p => p.hasCase) || leaderP;
-                        headerColsHtml += buildPriceHeader(pCaseLeader, caseHeaderLabel);
+                        const caseSubLabel = showSingle ? caseHeaderLabel : "";
+                        headerColsHtml += buildPriceHeader(pCaseLeader, caseSubLabel);
                     }
                 }
 
@@ -755,8 +761,9 @@
                 if (dynamicStyle) {
                     const textColor = (headerTextColor && headerTextColor !== '#000000') ? headerTextColor : getContrastYIQ(finalHeaderColor);
 
-                    // Directive: Headers should have a shadow when open (v1.8.07)
-                    dynamicStyle.textContent += `.${groupClass}[open] > summary { background-color: ${finalHeaderColor} !important; color: ${textColor} !important; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important; } \n`;
+                    // Color ONLY when the group is open (expanded). Closed = white/default.
+                    const openRule = `.${groupClass}[open] > summary { background-color: ${finalHeaderColor} !important; color: ${textColor} !important; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important; }`;
+                    dynamicStyle.textContent += openRule + '\n';
                     dynamicStyle.textContent += `.${groupClass}[open] > summary.header-content { color: ${textColor} !important; } \n`;
                     dynamicStyle.textContent += `.${groupClass}[open] > summary.header-content a { color: ${textColor} !important; } \n`;
                 }
@@ -829,21 +836,29 @@
     }
 
     // --- STICKY OFFSET CALCULATOR ---
-    // Uses getBoundingClientRect so the Google Apps Script security banner
-    // (which sits above the app bar inside the iframe) is included in the
-    // offset. A ResizeObserver watches for the banner being dismissed and
-    // recalculates automatically so headers snap to the correct position.
+    // Measures the bottom edge of the whole sticky app-bar block in one shot
+    // so we don't need to track tabs separately (on mobile the tabs live inside
+    // the app bar, so a single getBoundingClientRect().bottom already includes them).
     function updateStickyOffsets() {
         const appBar = document.querySelector('.md3-top-app-bar');
-        const tabs = document.getElementById('nav-tabs');
         if (!appBar) return;
 
-        // getBoundingClientRect().bottom = distance from viewport top to bottom
-        // of the app bar — includes any banner above it at scroll position 0.
-        const appBarBottom = Math.round(appBar.getBoundingClientRect().bottom + window.scrollY);
-        const tabsH = (tabs && !tabs.classList.contains('hidden')) ? tabs.offsetHeight : 0;
+        // Force a synchronous layout flush so we read post-resize values
+        appBar.getBoundingClientRect(); // trigger reflow
 
-        const catTop = appBarBottom + tabsH;
+        // bottom of app bar relative to the document (includes any OS banner above)
+        const appBarBottom = Math.round(appBar.getBoundingClientRect().bottom + window.scrollY);
+
+        // On mobile, tabs are inside the app bar, so appBarBottom already
+        // accounts for them. On desktop, nav-tabs live outside the bar:
+        // add their height only when they are NOT inside the bar.
+        const tabs = document.getElementById('nav-tabs');
+        let extraTabsH = 0;
+        if (tabs && !tabs.classList.contains('hidden') && !appBar.contains(tabs)) {
+            extraTabsH = tabs.offsetHeight;
+        }
+
+        const catTop = appBarBottom + extraTabsH;
         const catSummaryH = Math.round(
             (document.querySelector('.category-details>summary') || { offsetHeight: 52 }).offsetHeight
         );
@@ -882,7 +897,11 @@
         // Category level: opening a category closes every other category.
         // Product level: opening a product group closes every other product
         //                group WITHIN the same parent category.
-        // After opening, nudge the element smoothly into view.
+        //
+        // NO forced scroll on click — CSS position:sticky handles pinning
+        // the header to the top of the screen naturally as the user scrolls.
+        // Forcing a scroll when clicking caused the header to jump away from
+        // its natural position in the list.
         document.addEventListener('toggle', function (e) {
             const details = e.target;
             if (!details || details.tagName !== 'DETAILS' || !details.open) return;
@@ -901,9 +920,6 @@
                     });
                 }
             }
-
-            // Nudge into view after other panels have closed and layout settled
-            setTimeout(() => details.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
 
         }, true); // capture phase — fires before child toggle events bubble
     }
@@ -981,28 +997,32 @@
 
 
 
-            html += `<div class="grid-data-row" style="border-bottom:1px solid rgba(0,0,0,0.05); width: auto; min-width: 100%;">`;
+            // Matrix body row — flex-start so columns pack tight at declared widths,
+            // not spread across the full row by space-between.
+            html += `<div style="display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center;
+                         justify-content:flex-start; gap:4px; padding:8px 12px;
+                         border-bottom:1px solid rgba(0,0,0,0.05); width:100%; box-sizing:border-box;">`;
 
-            html += `<div class="col-name" style="position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1; border-right:1px solid rgba(0,0,0,0.1); display:flex; align-items:center;">
-                <span style="font-family: var(--md-ref-typeface-brand), sans-serif;">${rowLabel}</span>
-                        ${rowIsSale ? '<span class="sale-badge" style="transform: scale(0.8); margin-left:4px;">SALE</span>' : ''}
-                        ${!rowAvailable ? '<span class="sale-badge" style="background:#999; transform: scale(0.8); margin-left:4px;">Not Available</span>' : ''}
-                     </div>`;
-
-            // ALIGNMENT: Only use spacer if we have 2 or fewer columns to mimic Compact View
-            if (colDefs.length <= 2) {
-                html += `<div class="matrix-spacer" style="flex:1; min-width:10px;"></div>`;
-            }
+            // Sticky name column — fixed minimum width
+            html += `<div style="position:sticky; left:0; background:var(--md-sys-color-surface); z-index:1;
+                          border-right:1px solid rgba(0,0,0,0.1); flex:1; min-width:120px; padding-right:8px;
+                          display:flex; align-items:center; font-family:var(--md-ref-typeface-brand),sans-serif;">
+                <span>${rowLabel}</span>
+                ${rowIsSale ? '<span class="sale-badge" style="transform:scale(0.8);margin-left:4px;">SALE</span>' : ''}
+                ${!rowAvailable ? '<span class="sale-badge" style="background:#999;transform:scale(0.8);margin-left:4px;">N/A</span>' : ''}
+             </div>`;
 
             colDefs.forEach(col => {
                 let prod;
                 if (col.isVar2) {
-                    prod = products.find(p => String(p.variation) === String(rowLabel) && String(p.variation2) === String(col.name));
+                    prod = products.find(p => (p.variation || "Standard") === rowLabel && String(p.variation2) === String(col.name));
                 } else {
                     prod = products.find(p => (p.variation || "Standard") === rowLabel && p.name === col.name);
                 }
 
-                html += `<div class="col-data" style="flex:0 0 90px; width:90px; min-width:90px; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:8px 4px;">`;
+                html += `<div style="width:48px !important; max-width:48px !important; min-width:48px !important;
+                    flex:0 0 48px !important; overflow:hidden;
+                    display:flex; flex-direction:column; justify-content:center; align-items:center; padding:2px;">`;
 
                 if (prod) {
                     const isSale = !!prod.onSale;
@@ -1018,13 +1038,13 @@
                     // ID is now JUST the SKU
                     html += `<input type="number" class="qty-input matrix-input" id="${prod.sku}" value="0" min="0"
             data-sku="${prod.sku}" data-price="${displayPrice}"
-            data-name="${prod.name} - ${prod.variation} ${prod.variation2 ? '(' + prod.variation2 + ')' : ''}"
+            data-name="${prod.name}${prod.variation ? ' - ' + prod.variation : ''}${prod.variation2 ? ' (' + prod.variation2 + ')' : ''}"
             data-units="${prod.unitsPerCase}"
             onchange="calculateTotal()"
             ${disabledAttr}
-            style="width: 100%; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 8px; font-size: 16px; ${bgStyle}">`;
+            style="width:44px !important; max-width:44px !important; text-align:center; border:1px solid #ccc; border-radius:4px; padding:3px 1px; font-size:13px; box-sizing:border-box; ${bgStyle}">`;
 
-                    html += `<div class="price-sub ${priceClass}" style="font-size:11px; margin-top:4px;">$${priceStr}</div>`;
+                    html += `<div class="price-sub ${priceClass}" style="font-size:10px; margin-top:2px; overflow:hidden; max-width:48px; text-overflow:ellipsis; white-space:nowrap;">$${priceStr}</div>`;
                     if (hasDiscountValue) {
                         html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(prod.price).toFixed(2)}</div>`;
                     }
@@ -1073,15 +1093,19 @@
                 if (title && p.name) {
                     label = p.name.replace(regex, "").trim();
                     // Remove leading special chars that might remain (like " - " or " & ")
-                    label = label.replace(/^[\s\-\&]+/, "").trim();
+                    label = label.replace(/^[\s\-&]+/, "").trim();
                 }
             }
             if (!label) label = "Standard"; // Fallback
             label = String(label).trim();
 
-            const key = label; // Group by flavor/strain as the base key
+            // Key by Var1-derived label — products with same Var1 (e.g. same flavor but
+            // Single + Case formats) merge into one row, sorted into Single/Case slots below.
+            const key = label;
+
             if (!merged[key]) {
-                // Add Strength (Var2) to labels only if it's NOT common to the whole group (v1.8.20)
+                // Append Var2 as a suffix label only when it differs across the group
+                // (i.e. not a common spec shared by every product).
                 const v2 = String(p.variation2 || "").trim();
                 const displaySpec = (v2 && v2 !== commonSpec) ? ` (${v2})` : "";
                 const fullLabel = label + displaySpec;
@@ -1162,6 +1186,7 @@
 
         // Determine if we need the "Case" column at all for this group
         const hasAnyCase = rows.some(r => r.case !== null);
+        const hasAnySingle = rows.some(r => r.single !== null);
 
         let html = `<div class="table-container">`;
 
@@ -1199,31 +1224,33 @@
                 ${infoHtml}
                 </div>`;
 
-            // --- SINGLE COLUMN ---
-            html += `<div class="col-data">`;
-            if (pSingle) {
-                const isSingleSale = !!pSingle.onSale;
-                const hasDiscount = isSingleSale && (Number(pSingle.salePrice) > 0 && Number(pSingle.salePrice) < Number(pSingle.price));
-                const displayPrice = hasDiscount ? pSingle.salePrice : pSingle.price;
-                const priceClass = isSingleSale ? "sale-price-highlight" : "";
+            // --- SINGLE COLUMN (only rendered when the group has at least one single product) ---
+            if (hasAnySingle) {
+                html += `<div class="col-data">`;
+                if (pSingle) {
+                    const isSingleSale = !!pSingle.onSale;
+                    const hasDiscount = isSingleSale && (Number(pSingle.salePrice) > 0 && Number(pSingle.salePrice) < Number(pSingle.price));
+                    const displayPrice = hasDiscount ? pSingle.salePrice : pSingle.price;
+                    const priceClass = isSingleSale ? "sale-price-highlight" : "";
 
-                const disabledAttr = pSingle.isAvailable ? "" : "disabled";
-                const bgStyle = pSingle.isAvailable ? "" : "background: #f0f0f0; color: #aaa;";
+                    const disabledAttr = pSingle.isAvailable ? "" : "disabled";
+                    const bgStyle = pSingle.isAvailable ? "" : "background: #f0f0f0; color: #aaa;";
 
-                html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0" 
+                    html += `<input type="number" inputmode="numeric" pattern="[0-9]*" min="0" 
             id="${pSingle.sku}"
             data-sku="${pSingle.sku}" data-type="unit"
             data-category="${leader.category}" data-group="${escapeRegex(title)}"
             class="table-input qty-input" placeholder="0"
             ${disabledAttr} style="${bgStyle}">`;
 
-                // ALWAYS Show Price
-                html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
-                if (hasDiscount) {
-                    html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
+                    // ALWAYS Show Price
+                    html += `<div class="price-sub ${priceClass}">$${Number(displayPrice).toFixed(2)}</div>`;
+                    if (hasDiscount) {
+                        html += `<div class="price-sub original-price-strikethrough" style="font-size:9px;">$${Number(pSingle.price).toFixed(2)}</div>`;
+                    }
                 }
-            }
-            html += `</div>`;
+                html += `</div>`;
+            } // end hasAnySingle
 
             // --- CASE COLUMN ---
             if (hasAnyCase) {
@@ -1473,6 +1500,7 @@
         if (loadText) loadText.textContent = "Processing Order...";
         loader.classList.remove('hidden');
 
+        const summaryToggle = document.getElementById('use-summary-pdf-toggle');
         const payload = {
             id: window.editOrderId,
             editOrderId: window.editOrderId, // For revision tracking
@@ -1481,7 +1509,8 @@
             clientAddress: document.getElementById('client-address-input').value,
             clientComments: document.getElementById('client-comments-input').value,
             items: lastItems,
-            totalPieces: window._calculatedTotalPieces || 0
+            totalPieces: window._calculatedTotalPieces || 0,
+            useSummaryPdf: summaryToggle ? summaryToggle.checked : false
         };
 
         google.script.run
@@ -1491,50 +1520,91 @@
     }
 
     function generateOrderSummaryHtml(items) {
-        let tableHtml = `<table style="width:100%; border-collapse: collapse; font-size:12px;">`;
-        tableHtml += `<thead style="background:#f0f0f0; font-weight:bold;">
-                <tr>
-                    <th style="padding:8px; border:1px solid #ddd;">Product</th>
-                    <th style="padding:8px; border:1px solid #ddd;">Qty (Units)</th>
-                    <th style="padding:8px; border:1px solid #ddd;">Line Total</th>
-                </tr>
-                      </thead > <tbody>`;
+        // Group items by their orderFormNumber so each form gets its own section.
+        const formGroups = {}; // { formNum: [enrichedItems] }
+        const formOrder = []; // maintain insertion order
 
-        let grandTotal = 0;
-
-        // Enrich items with Product Details for display
         items.forEach(item => {
             const product = PRODUCT_CATALOG.find(p => p.sku === item.sku);
-            if (product) {
-                const name = product.name + (product.variation && product.variation !== "Standard" ? ` ${product.variation}` : "");
+            const formNum = (product && product.orderFormNumber) ? String(product.orderFormNumber).trim() : '1';
 
-                // Calculate Price based on unified product-level sale logic (Matches header calculation)
+            if (!formGroups[formNum]) {
+                formGroups[formNum] = [];
+                formOrder.push(formNum);
+            }
+
+            if (product) {
+                const v1 = (product.variation && product.variation !== "Standard") ? product.variation : "";
+                const v2 = String(product.variation2 || "").trim();
+                let name = product.name;
+                if (v1) name += ` ${v1}`;
+                if (v2 && v2 !== v1) name += ` (${v2})`;
+
                 const isSale = !!product.onSale;
                 const finalPrice = isSale ? (Number(product.salePrice) || 0) : (Number(product.price) || 0);
-
                 const lineTotal = finalPrice * item.quantity;
-                grandTotal += lineTotal;
 
-                tableHtml += `<tr>
-                    <td style="padding:8px; border:1px solid #ddd;">${name}</td>
-                    <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
-                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${lineTotal.toFixed(2)}</td>
-                </tr>`;
+                formGroups[formNum].push({ name, quantity: item.quantity, lineTotal, found: true });
             } else {
-                tableHtml += `<tr>
-                                <td style="padding:8px; border:1px solid #ddd;">${item.sku}</td>
-                                <td style="padding:8px; border:1px solid #ddd; text-align:center;">${item.quantity}</td>
-                                <td style="padding:8px; border:1px solid #ddd; text-align:right;">-</td>
-                              </tr>`;
+                formGroups[formNum].push({ name: item.sku, quantity: item.quantity, lineTotal: 0, found: false });
             }
         });
 
-        tableHtml += `<tr style="font-weight:bold; background:#fafafa;">
-                    <td colspan="2" style="padding:8px; border:1px solid #ddd; text-align:right;">Total:</td>
-                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${grandTotal.toFixed(2)}</td>
+        const multiForm = formOrder.length > 1;
+        let html = '';
+        let overallTotal = 0;
+
+        formOrder.forEach(formNum => {
+            const groupItems = formGroups[formNum];
+            let formTotal = 0;
+            groupItems.forEach(i => formTotal += i.lineTotal);
+            overallTotal += formTotal;
+
+            if (multiForm) {
+                html += `<div style="margin-bottom:16px;">
+                    <div style="font-weight:700; font-size:12px; padding:6px 8px; background:var(--md-sys-color-primary,#e67700); color:#fff; border-radius:4px 4px 0 0; margin-bottom:0;">
+                        Form ${formNum}
+                    </div>`;
+            }
+
+            html += `<table style="width:100%; border-collapse:collapse; font-size:12px; ${multiForm ? 'border-radius:0 0 4px 4px;' : ''}">
+                <thead style="background:#f0f0f0; font-weight:bold;">
+                    <tr>
+                        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Product</th>
+                        <th style="padding:8px; border:1px solid #ddd;">Qty</th>
+                        <th style="padding:8px; border:1px solid #ddd; text-align:right;">Line Total</th>
+                    </tr>
+                </thead><tbody>`;
+
+            groupItems.forEach(i => {
+                html += `<tr>
+                    <td style="padding:8px; border:1px solid #ddd;">${i.name}</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:center;">${i.quantity}</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">${i.found ? '$' + i.lineTotal.toFixed(2) : '-'}</td>
                 </tr>`;
-        tableHtml += `</tbody></table>`;
-        return tableHtml;
+            });
+
+            // Per-form subtotal
+            html += `<tr style="font-weight:bold; background:#fafafa;">
+                    <td colspan="2" style="padding:8px; border:1px solid #ddd; text-align:right;">${multiForm ? 'Form ' + formNum + ' Subtotal:' : 'Total:'}</td>
+                    <td style="padding:8px; border:1px solid #ddd; text-align:right;">$${formTotal.toFixed(2)}</td>
+                </tr>`;
+
+            html += `</tbody></table>`;
+            if (multiForm) html += `</div>`;
+        });
+
+        // Grand total row when there are multiple forms
+        if (multiForm) {
+            html += `<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:4px;">
+                <tr style="font-weight:900; background:#e8f5e9;">
+                    <td colspan="2" style="padding:8px; border:2px solid #4caf50; text-align:right; color:#1b5e20;">Grand Total:</td>
+                    <td style="padding:8px; border:2px solid #4caf50; text-align:right; color:#1b5e20; width:100px;">$${overallTotal.toFixed(2)}</td>
+                </tr>
+            </table>`;
+        }
+
+        return html;
     }
 
     function onOrderSuccess(response) {
@@ -1634,13 +1704,15 @@
      * Check if a group should be displayed as a 2D Matrix
      */
     function checkMatrixEligibility(products, groupName) {
-        // Directive v1.8.20: Only Matrix if we have MULTIPLE unique Variation 2 columns.
-        // If there's only one (e.g. all are "50mg"), use the Compact Table for Single/Case support.
-        const uniqueSpecs = [...new Set(products.map(p => String(p.variation2 || "").trim()).filter(v => v && v.toLowerCase() !== "undefined"))];
+        // Matrix mode when Variation 2 has multiple unique values.
+        //   - Var1 values (Flavor) → rows  (empty Var1 = one "Standard" row)
+        //   - Var2 values (Strength/Format) → columns
+        // Works for both "Var1 rows × Var2 columns" and "Standard row × Var2 columns".
+        const uniqueVar2 = [...new Set(products.map(p => String(p.variation2 || "").trim()).filter(v => v && v.toLowerCase() !== "undefined"))];
 
-        if (uniqueSpecs.length > 1) return true;
+        if (uniqueVar2.length > 1) return true;
 
-        // Final fallback: Stay in Compact mode to preserve the Single/Case functionality.
+        // Single or no Var2 value → stay in Compact mode (Single/Case column logic).
         return false;
     }
 

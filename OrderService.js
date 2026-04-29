@@ -132,7 +132,8 @@ function processOrder(orderData) {
             date: new Date(),
             total: totalAmount,
             items: itemsToStaging,
-            salesRep: orderData.salesRep || ''
+            salesRep: orderData.salesRep || '',
+            useSummaryPdf: !!orderData.useSummaryPdf
         });
     } catch (e) {
         Logger.log('Order Form PDF generation failed: ' + e.message + '\n' + e.stack);

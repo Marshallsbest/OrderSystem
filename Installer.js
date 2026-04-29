@@ -505,6 +505,14 @@ function _getDefaultSettings() {
         // ── Order Form Sheet Mapping ──────────────────────────────────────────
         ['FORM_1_SHEET', 'ORDER_FORM_1'],
         ['FORM_2_SHEET', 'ORDER_FORM_2'],
+        ['FORM_3_SHEET', 'ORDER_FORM_3'],
+
+        // ── Order Form Row-Matching Mode ──────────────────────────────────────
+        // REF = match rows by the product Reference code (default for Form 1)
+        // SKU = match rows by the product SKU          (use for per-item forms)
+        ['FORM_1_LOOKUP', 'REF'],
+        ['FORM_2_LOOKUP', 'SKU'],
+        ['FORM_3_LOOKUP', 'REF'],
 
         // ── Product Data Column Mapping ───────────────────────────────────────
         // Values = the column HEADER name in your PRODUCTS sheet.
@@ -635,46 +643,20 @@ function _setSheetOrder(ss) {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * onInstall — fires automatically when a user installs the add-on.
- * Opens the setup wizard sidebar immediately on first install.
+ * Add-on hooks reserved for future use. The main menu is handled by Controller.js.
  */
-function onInstall(e) {
-    onOpen(e);
+function _installerOnInstall(e) {
+    _installerOnOpen(e);
     _showSetupWizard();
 }
 
-/**
- * onOpen — fires every time the spreadsheet is opened.
- *
- * NOT YET INSTALLED → one menu item: "🚀 Set Up Order System…"
- * ALREADY INSTALLED  → full operational menu.
- *
- * The flag ORDER_SYSTEM_INSTALLED is written by runInstaller().
- * Change createAddonMenu() → createMenu('Order System') for editor add-ons.
- */
-function onOpen(e) {
+function _installerOnOpen(e) {
     const isInstalled = PropertiesService
         .getScriptProperties()
         .getProperty('ORDER_SYSTEM_INSTALLED') === 'true';
 
-    const ui = SpreadsheetApp.getUi();
-    const menu = ui.createAddonMenu();
-
-    if (!isInstalled) {
-        menu.addItem('🚀 Set Up Order System…', '_showSetupWizard');
-    } else {
-        menu
-            .addItem('Launch Order Form', 'showOrderFormDialog')
-            .addItem('Add / Edit Products', 'showAddProductSidebar')
-            .addSeparator()
-            .addItem('📄 Generate PDF for Selected Order', 'generateSelectedOrderPdf')
-            .addSeparator()
-            .addItem('📊 Refresh Daily Dashboard', 'refreshDailyOperationsDashboard')
-            .addSeparator()
-            .addItem('⚙️  Re-run Installer / Repair', '_showSetupWizard');
-    }
-
-    menu.addToUi();
+    // To use this as a standalone setup wizard, you can call _showSetupWizard()
+    // directly from the Script Editor or the primary menu.
 }
 
 

@@ -1,5 +1,5 @@
 ﻿<style>
-    /* Version: 1.6.07 — mobile scroll fixes, exclusive accordion, dynamic sticky offsets */
+    /* Version: 1.6.10 — all accordion headers scroll naturally, no sticky */
     :root {
         --md-sys-color-primary: #32CD32;
         --md-sys-color-on-primary: #000000;
@@ -54,7 +54,7 @@
         justify-content: space-between;
         align-items: center;
         width: 100%;
-        max-width: 900px;
+        max-width: 1200px;
         margin: 0 auto;
     }
 
@@ -74,8 +74,9 @@
     }
 
     .md3-container {
-        padding: 16px;
-        max-width: 900px;
+        padding: 16px 24px;
+        max-width: 1200px;
+        width: 100%;
         margin: 0 auto;
         box-sizing: border-box;
     }
@@ -471,16 +472,9 @@
         align-items: center;
         border-radius: 8px;
         background-color: var(--md-sys-color-surface);
-        /* Clean White/Surface when closed */
         transition: background-color 0.2s ease, box-shadow 0.2s ease;
-
-        /* STICKY WATERFALL HEADER RESTORED */
-        position: sticky;
-        top: var(--prod-sticky-top, 112px);
-        /* set by JS based on real header height */
-        /* App Bar + Category header */
-        z-index: 20;
-        /* Always allow vertical scroll on touch */
+        /* Product group headers scroll naturally with the page.
+           Only category headers are sticky — no z-index or top needed here. */
         touch-action: pan-y;
         -webkit-tap-highlight-color: transparent;
     }
@@ -488,19 +482,13 @@
     /* Category Header */
     .category-details>summary {
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-        position: sticky;
-        top: var(--cat-sticky-top, 64px);
-        /* set by JS based on real header height */
-        z-index: 25;
         touch-action: pan-y;
         -webkit-tap-highlight-color: transparent;
     }
 
     .category-details[open]>summary {
         box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2) !important;
-        position: sticky;
-        top: var(--cat-sticky-top, 64px);
-        z-index: 30;
+        transform: none !important;
     }
 
     .category-details>summary:hover {
@@ -520,6 +508,8 @@
         /* Remove gap between header and content */
         /* Ensure prominent shadow on sticky to look "raised" over scrolling content */
         box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        /* Must NOT lift above category summary */
+        z-index: 20;
     }
 
     /* Hide Quantity Label when collapsed */
@@ -548,19 +538,17 @@
     }
 
     .header-expanded-content .col-data {
-        /* Ensure header cols use same flex props as body cols */
-        flex: 0.8;
-        max-width: 80px;
+        flex: 0 0 44px;
+        width: 44px;
+        min-width: 40px;
+        max-width: 44px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-width: 60px;
         text-align: center;
-        font-size: 11px;
-        /* Smaller, more refined */
+        font-size: 10px;
         font-weight: 600;
-        /* Slightly bolder for headers */
         line-height: 1.2;
     }
 
@@ -613,12 +601,11 @@
     }
 
     .col-data {
-        flex: 0.8;
-        /* Reduced from 1 - makes columns more compact */
-        min-width: 60px;
-        /* Reduced from 65px */
-        max-width: 80px;
-        /* Add max width to prevent spreading */
+        flex: 0 0 44px;
+        /* Fixed — never grows regardless of container width */
+        width: 44px;
+        min-width: 40px;
+        max-width: 44px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -626,19 +613,14 @@
     }
 
     .table-input {
-        width: 100%;
-        /* Fill column width */
-        max-width: 55px;
-        /* Reduced from 60px */
+        width: 40px;
+        max-width: 40px;
         height: 34px;
-        /* Slightly smaller from 36px */
         text-align: center;
         border: 1px solid var(--md-sys-color-outline);
         border-radius: 4px;
-        font-size: 14px;
-        /* Reduced from 16px for more refinement */
+        font-size: 13px;
         font-weight: 400;
-        /* Normal weight instead of bold */
     }
 
     .price-sub {
@@ -964,12 +946,18 @@
     @media (hover: none) and (pointer: coarse) {
 
         .category-details>summary:hover,
-        .product-group-details:hover {
+        .product-group-details:hover,
+        .product-group-details[open] {
             transform: none !important;
         }
 
-        .product-group-details[open] {
-            transform: none !important;
+        /* Prevent lifted cards from floating above sticky category header */
+        .product-group-details {
+            z-index: auto !important;
+        }
+
+        .product-group-details>summary {
+            z-index: 20 !important;
         }
 
         .matrix-scroll-view,
