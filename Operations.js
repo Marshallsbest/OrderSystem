@@ -25,7 +25,8 @@ function getAppConfig() {
             if (adminRange) {
                 config.ADMIN_KEY = String(adminRange.getValue()).trim();
             } else {
-                config.ADMIN_KEY = config.ADMIN_KEY || "ADMIN123"; // Fallback if range missing
+                // Fail closed: no key means admin access is denied
+                config.ADMIN_KEY = config.ADMIN_KEY || "";
             }
         } catch (e) { }
 
